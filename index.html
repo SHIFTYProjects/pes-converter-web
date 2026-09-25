@@ -587,7 +587,6 @@
             const noiseTolerance = parseInt(document.getElementById('noise-slider').value) / 2;
 
             for (let c = 0; c < numColors; c++) {
-                // Safely handle RGB values to prevent NaN black hex conversions
                 const r = Math.round(clusters[c].r) || 0;
                 const g = Math.round(clusters[c].g) || 0;
                 const b = Math.round(clusters[c].b) || 0;
@@ -620,9 +619,6 @@
                         y: (p.y * scaleY) - scaledMinY 
                     }));
 
-                    // CRITICAL FIX: Reverting back to fabric.Path. 
-                    // fabric.Polygon destroys absolute physical mappings via pathOffsets, 
-                    // causing the stitch preview to draw massive black glitch patterns.
                     const pathData = relativePts.map((p, i) => (i === 0 ? 'M ' : 'L ') + p.x + ' ' + p.y).join(' ') + ' Z';
                     
                     const poly = new fabric.Path(pathData, {
@@ -635,128 +631,7 @@
                         objectCaching: false
                     });
                     
-                    // CRITICAL FIX: Explicitly appending the custom parameter after instantiation 
-                    // guarantees it survives strict object parsing and restores the color UI map.
                     poly.originalFill = hexColor; 
-                    
-                    polygons.push(poly);
-                });
-            }
-
-            if (polygons.length > 0) {
-                const vectorGroup = new fabric.Group(polygons, {
-                    left: imgObj.left,
-                    top: imgObj.top,
-                    angle: imgObj.angle
-                });
-
-                if (workingImageObject) canvas.remove(workingImageObject);
-                if (currentVectorGroup) canvas.remove(currentVectorGroup);
-
-                canvas.add(vectorGroup);
-                canvas.setActiveObject(vectorGroup);
-                currentVectorGroup = vectorGroup;
-
-                extractVectorColors(vectorGroup);
-                document.getElementById('color-mapping-section').style.display = 'block';
-                canvas.renderAll();
-                saveCanvasState();
-                if (previewActive) renderStitchPreview();
-            }
-        }
-
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = procW; tempCanvas.height = procH;
-            const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
-            ctx.drawImage(imgEl, 0, 0, procW, procH);
-            
-            const imgData = ctx.getImageData(0, 0, procW, procH);
-            const data = imgData.data;
-            const numColors = parseInt(document.getElementById('color-count-slider').value);
-
-            const pixels = [];
-            for (let i = 0; i < data.length; i += 4) {
-                if (data[i+3] > 128) { 
-                    pixels.push({ r: data[i], g: data[i+1], b: data[i+2], index: i/4 });
-                }
-            }
-            if(pixels.length === 0) return;
-
-            let clusters = [];
-            for (let i = 0; i < numColors; i++) {
-                const randPx = pixels[Math.floor(Math.random() * pixels.length)];
-                clusters.push({ r: randPx.r, g: randPx.g, b: randPx.b });
-            }
-
-            const pixelLabels = new Int32Array(procW * procH).fill(-1);
-
-            for (let iter = 0; iter < 3; iter++) {
-                const sums = Array(numColors).fill(0).map(() => ({r:0, g:0, b:0, count:0}));
-                for (let i = 0; i < pixels.length; i++) {
-                    const p = pixels[i];
-                    let minDist = Infinity, bestC = 0;
-                    for (let c = 0; c < numColors; c++) {
-                        const d = Math.abs(p.r - clusters[c].r) + Math.abs(p.g - clusters[c].g) + Math.abs(p.b - clusters[c].b);
-                        if (d < minDist) { minDist = d; bestC = c; }
-                    }
-                    pixelLabels[p.index] = bestC;
-                    sums[bestC].r += p.r; sums[bestC].g += p.g; sums[bestC].b += p.b; sums[bestC].count++;
-                }
-                for (let c = 0; c < numColors; c++) {
-                    if (sums[c].count > 0) {
-                        clusters[c].r = Math.floor(sums[c].r / sums[c].count);
-                        clusters[c].g = Math.floor(sums[c].g / sums[c].count);
-                        clusters[c].b = Math.floor(sums[c].b / sums[c].count);
-                    }
-                }
-            }
-
-            const polygons = [];
-            const scaleX = imgObj.scaleX * (nativeW / procW);
-            const scaleY = imgObj.scaleY * (nativeH / procH);
-            const noiseTolerance = parseInt(document.getElementById('noise-slider').value) / 2;
-
-            for (let c = 0; c < numColors; c++) {
-                const hexColor = "#" + (1 << 24 | clusters[c].r << 16 | clusters[c].g << 8 | clusters[c].b).toString(16).slice(1);
-                
-                const grid = new Uint8Array(procW * procH);
-                for(let i = 0; i < pixelLabels.length; i++) {
-                    if(pixelLabels[i] === c) grid[i] = 1;
-                }
-
-                let colorPolys = extractContours(grid, procW, procH);
-                
-                colorPolys.forEach(pts => {
-                    if(pts.length < 4) return;
-                    
-                    const simplified = simplifyPath(pts, noiseTolerance);
-                    if(simplified.length < 3) return;
-
-                    let minX = Infinity, minY = Infinity;
-                    simplified.forEach(p => { 
-                        if (p.x < minX) minX = p.x; 
-                        if (p.y < minY) minY = p.y; 
-                    });
-
-                    const scaledMinX = minX * scaleX;
-                    const scaledMinY = minY * scaleY;
-
-                    const relativePts = simplified.map(p => ({
-                        x: (p.x * scaleX) - scaledMinX, 
-                        y: (p.y * scaleY) - scaledMinY 
-                    }));
-
-                    const poly = new fabric.Polygon(relativePts, {
-                        fill: hexColor,
-                        originalFill: hexColor, 
-                        strokeWidth: 0,
-                        left: imgObj.left + scaledMinX,
-                        top: imgObj.top + scaledMinY,
-                        originX: 'left',
-                        originY: 'top',
-                        objectCaching: false
-                    });
-                    
                     polygons.push(poly);
                 });
             }
@@ -1105,10 +980,10 @@
                 obj._objects.forEach(child => {
                     const childColor = hexToNormalizedHex(child.fill || '#000000');
                     let pts = [];
-                    if (child.points) {
-                        pts = child.points.map(p => fabric.util.transformPoint(p, matrix));
-                    } else if (child.path) {
+                    if (child.path) {
                         pts = sampleFabricPath(child.path, matrix);
+                    } else if (child.points) {
+                        pts = child.points.map(p => fabric.util.transformPoint(p, matrix));
                     }
                     if (pts.length >= 3) results.push({ color: childColor, points: pts });
                 });
