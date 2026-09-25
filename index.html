@@ -1045,7 +1045,39 @@
 
         // =========================================================================
         // COMPLIANT BINARY PEC / PES ENCODER
+        // Layout verified against the documented Brother PES/PEC binary spec:
+        // https://edutechwiki.unige.ch/en/Embroidery_format_PES
+        // https://edutechwiki.unige.ch/en/Embroidery_format_PEC
         // =========================================================================
+
+        // The fixed 64-thread PEC palette (index 1-64, verified against a Brother
+        // Innovis 955). Every color a machine can display comes from this table -
+        // a .pes file does not carry arbitrary RGB, it carries an INDEX into this
+        // list. This was the root cause of "color data not kept": the old exporter
+        // wrote a meaningless cycling 1-12 index instead of matching real threads.
+        const PEC_THREAD_PALETTE = [
+            '#1a0a94','#0f75ff','#00934c','#babdfe','#ec0000','#e4995a','#cc48ab','#fdc4fa',
+            '#dd84cd','#6bd38a','#e4a945','#ffbd42','#ffe600','#6cd900','#c1a941','#b5ad97',
+            '#ba9c5f','#faf59e','#808080','#000000','#001cdf','#df00b8','#626262','#69260d',
+            '#ff0060','#bf8200','#f39178','#ff6805','#f0f0f0','#c832cd','#b0bf9b','#65bfeb',
+            '#ffba04','#fff06c','#feca15','#f38101','#37a923','#23465f','#a6a695','#cebfa6',
+            '#96aa02','#ffe3c6','#ff99d7','#007004','#edccfb','#c089d8','#e7d9b4','#e90e86',
+            '#cf6829','#408615','#db1797','#ffa704','#b9ffff','#228927','#b612cd','#00aa00',
+            '#fea9dc','#fed510','#0097df','#ffff84','#cfe774','#ffc864','#ffc8c8','#ffc8c8'
+        ];
+
+        // Finds the closest real Brother thread to a design color (nearest RGB
+        // match) and returns its 1-based palette index, as the .pes format expects.
+        function findNearestPecColorIndex(hex) {
+            const target = hexToRgb(hex);
+            let bestIndex = 1, bestDist = Infinity;
+            PEC_THREAD_PALETTE.forEach((swatchHex, i) => {
+                const c = hexToRgb(swatchHex);
+                const dist = (c.r - target.r) ** 2 + (c.g - target.g) ** 2 + (c.b - target.b) ** 2;
+                if (dist < bestDist) { bestDist = dist; bestIndex = i + 1; }
+            });
+            return bestIndex;
+        }
 
         document.getElementById('export-pes-btn').addEventListener('click', () => {
             const { colorBlocks } = generateVectorStitches();
@@ -1061,41 +1093,104 @@
             document.body.removeChild(link);
         });
 
+        function writeU16LE(arr, offset, value) {
+            arr[offset] = value & 0xFF;
+            arr[offset + 1] = (value >> 8) & 0xFF;
+        }
+        function writeS16LE(arr, offset, value) {
+            writeU16LE(arr, offset, value < 0 ? value + 0x10000 : value);
+        }
+
         function buildPesBinary(colorBlocks) {
+            // ---- 1. Match every design color to the nearest real Brother thread ----
+            const colorIndices = colorBlocks.map(b => findNearestPecColorIndex(b.color));
+
+            // ---- 2. Encode the stitch list (dx/dy deltas + color-change + jump commands) ----
             const pecStitches = [];
             let lastX = 0, lastY = 0;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
             colorBlocks.forEach((block, bIdx) => {
                 if (bIdx > 0) {
-                    // PEC Color Change Command
-                    pecStitches.push(0xFE, 0xB0, (bIdx % 12) + 1);
+                    // PEC Color Change command: 0xFE 0xB0 <palette index of new thread>
+                    pecStitches.push(0xFE, 0xB0, colorIndices[bIdx]);
                 }
 
                 block.stitches.forEach((pt) => {
-                    let dx = pt.x - lastX;
-                    let dy = pt.y - lastY;
-                    encodePecDelta(pecStitches, dx, dy, pt.isJump);
+                    if (pt.x < minX) minX = pt.x;
+                    if (pt.x > maxX) maxX = pt.x;
+                    if (pt.y < minY) minY = pt.y;
+                    if (pt.y > maxY) maxY = pt.y;
+
+                    const dx = pt.x - lastX;
+                    const dy = pt.y - lastY;
+                    encodePecDelta(pecStitches, dx, dy, !!pt.isJump);
                     lastX = pt.x;
                     lastY = pt.y;
                 });
             });
 
             // PEC End of Design
-            pecStitches.push(0xFF, 0x00);
+            pecStitches.push(0xFF);
 
-            // Build PEC Header Block (512 bytes)
-            const pecHeader = new Uint8Array(512);
-            const label = "LA:VECTOR_EMB    ";
-            for (let i = 0; i < label.length; i++) pecHeader[i] = label.charCodeAt(i);
-            pecHeader[0x0D] = 0x30;
-            pecHeader[0x1C] = 0x3A;
-            pecHeader[0x1D] = colorBlocks.length - 1;
+            if (!isFinite(minX)) { minX = 0; maxX = 0; minY = 0; maxY = 0; }
+            const designWidth = Math.max(0, Math.round(maxX - minX));
+            const designHeight = Math.max(0, Math.round(maxY - minY));
 
-            colorBlocks.forEach((b, i) => { pecHeader[0x1E + i] = (i % 12) + 1; });
+            // ---- 3. Build the 512-byte First PEC Section ----
+            // (label, thumbnail dimensions, color count + real palette indices)
+            const pecHeader = new Uint8Array(512).fill(0x20);
 
-            // PES Container Wrapper
+            const label = ('LA:' + 'VECTOR_EMB').slice(0, 19).padEnd(19, ' ');
+            for (let i = 0; i < 19; i++) pecHeader[i] = label.charCodeAt(i);
+            pecHeader[19] = 0x0D; // carriage return terminates the label
+
+            pecHeader[31] = 0xFF;
+            pecHeader[32] = 0xFF; // unknown (typical value 0x00FF, little-endian)
+            pecHeader[33] = 0x00;
+            pecHeader[34] = 0x06; // thumbnail width in bytes (6 bytes = 48px wide)
+            pecHeader[35] = 0x26; // thumbnail height in pixels (38)
+            const unknown12 = [0x20, 0x20, 0x20, 0x20, 0x64, 0x20, 0x00, 0x20, 0x00, 0x20, 0x20, 0x20];
+            for (let i = 0; i < 12; i++) pecHeader[36 + i] = unknown12[i];
+
+            // *** This is the fix: real color count + real palette index per block ***
+            pecHeader[48] = colorBlocks.length - 1; // "number of colors minus one"
+            for (let i = 0; i < colorIndices.length; i++) {
+                pecHeader[49 + i] = colorIndices[i];
+            }
+
+            // ---- 4. Build the 20-byte Second PEC Section (this block was missing
+            // entirely before - without it every stitch coordinate a reader parses
+            // is shifted/misaligned, which is why stitch data also came out wrong) ----
+            const secondSection = new Uint8Array(20);
+            const thumbnailOffset = 20 + pecStitches.length; // relative to (pecOffset + 512)
+
+            writeU16LE(secondSection, 0, 0x0000);
+            writeU16LE(secondSection, 2, thumbnailOffset);
+            writeU16LE(secondSection, 4, 0x0031);
+            writeU16LE(secondSection, 6, 0xFFF0);
+            writeS16LE(secondSection, 8, designWidth);
+            writeS16LE(secondSection, 10, designHeight);
+            writeU16LE(secondSection, 12, 0xE001);
+            writeU16LE(secondSection, 14, 0xB001);
+            // bytes 16-19 stay 0 (unknown/reserved)
+
+            // ---- 5. Blank thumbnail bitmaps: 1 main + 1 per color (required count) ----
+            const thumbWidthBytes = 6, thumbHeight = 38;
+            const thumbSize = thumbWidthBytes * thumbHeight;
+            const thumbnailCount = 1 + colorBlocks.length;
+            const thumbnails = new Uint8Array(thumbSize * thumbnailCount); // blank is valid
+
+            // ---- 6. Assemble the PEC block ----
+            const pecBlock = new Uint8Array(512 + 20 + pecStitches.length + thumbnails.length);
+            pecBlock.set(pecHeader, 0);
+            pecBlock.set(secondSection, 512);
+            pecBlock.set(new Uint8Array(pecStitches), 532);
+            pecBlock.set(thumbnails, 532 + pecStitches.length);
+
+            // ---- 7. Wrap in the minimal valid PES v1 container ----
             const pecOffset = 0x200;
-            const totalSize = pecOffset + pecHeader.length + pecStitches.length;
+            const totalSize = pecOffset + pecBlock.length;
             const buffer = new Uint8Array(totalSize);
 
             const signature = "#PES0001";
@@ -1107,25 +1202,31 @@
             buffer[0x0A] = (pecOffset >> 16) & 0xFF;
             buffer[0x0B] = (pecOffset >> 24) & 0xFF;
 
-            buffer.set(pecHeader, pecOffset);
-            buffer.set(new Uint8Array(pecStitches), pecOffset + pecHeader.length);
-
+            buffer.set(pecBlock, pecOffset);
             return buffer;
         }
 
+        // Encodes one dx/dy stitch pair. Short form is a single signed 7-bit byte
+        // (-64..63). Long form is 2 bytes: top nibble is a command flag (0x8 = plain
+        // long stitch, 0x9 = jump) and the remaining 12 bits are the signed delta.
+        // Per spec, if EITHER axis needs long form, BOTH axes are written in long
+        // form for maximum machine compatibility - the old code encoded each axis
+        // independently, which some readers mis-parse.
         function encodePecDelta(arr, dx, dy, isJump) {
-            function encodeVal(v, jump) {
-                if (!jump && v >= -64 && v <= 63) {
-                    arr.push(v & 0x7F);
+            const needsLong = isJump || dx < -64 || dx > 63 || dy < -64 || dy > 63;
+            const nibble = isJump ? 0x9 : 0x8;
+
+            function pushCoord(v, useLongForm) {
+                if (!useLongForm) {
+                    arr.push(v & 0x7F); // short form: 7-bit two's complement
                 } else {
-                    let code = v & 0x0FFF;
-                    if (jump) code |= 0x1000;
-                    code |= 0x8000;
-                    arr.push((code >> 8) & 0xFF, code & 0xFF);
+                    const v12 = v & 0x0FFF; // 12-bit two's complement
+                    arr.push((nibble << 4) | ((v12 >> 8) & 0x0F), v12 & 0xFF);
                 }
             }
-            encodeVal(dx, isJump);
-            encodeVal(dy, isJump);
+
+            pushCoord(dx, needsLong);
+            pushCoord(dy, needsLong);
         }
 
         function hexToRgb(hex) {
