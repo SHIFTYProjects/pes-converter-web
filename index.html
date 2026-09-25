@@ -4,12 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PES Embroidery Studio - Vector Geometry Digitizer</title>
-    <!-- Google Fonts Library -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Anton&family=Lobster&family=Montserrat:wght@400;700&family=Open+Sans:wght@400;700&family=Oswald:wght@500;700&family=Pacifico&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
-    
-    <!-- Fabric.js Only -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -83,7 +80,6 @@
             <button id="btn-undo" style="background:#2a2a2a; border-color:#00a8ff; padding: 4px 10px;" title="Undo Action (Ctrl+Z)" disabled>↶ Undo</button>
         </div>
 
-        <!-- 1. HOOP & ORIENTATION -->
         <h3>1. Hoop & Orientation</h3>
         <div class="control-group">
             <label>Hoop Size Preset:</label>
@@ -95,7 +91,6 @@
                 <option value="8x12">8" x 12" (200 x 300 mm)</option>
             </select>
         </div>
-
         <div class="control-group">
             <div class="row">
                 <button id="orient-portrait" style="background:#00a8ff;">Portrait</button>
@@ -103,7 +98,6 @@
             </div>
         </div>
 
-        <!-- 2. ARTWORK & TEXT -->
         <h3>2. Import Vector / Text</h3>
         <div class="control-group">
             <input type="file" id="img-upload" accept="image/*" style="display:none;">
@@ -134,7 +128,6 @@
             </select>
         </div>
 
-        <!-- VECTOR TRACING SECTION -->
         <div id="vector-pipeline-section" style="display: none;">
             <h3>3. Vector Tracing Engine</h3>
             <button id="btn-remove-bg" style="background: #ef6c00;">Step 1: Outer Background Fill Cleanup</button>
@@ -143,16 +136,13 @@
                 <label>Max Palette Colors: <span id="color-count-val" style="color:#00a8ff; font-weight:bold;">6</span></label>
                 <input type="range" id="color-count-slider" min="2" max="16" value="6">
             </div>
-
             <div class="control-group">
                 <label>Speckle / Noise Filter: <span id="noise-filter-val" style="color:#00a8ff; font-weight:bold;">Medium</span></label>
                 <input type="range" id="noise-slider" min="1" max="10" value="4">
             </div>
-
             <button id="btn-trace-vector" style="background: #2e7d32; margin-top: 4px;">Step 2: Vectorize Paths</button>
         </div>
 
-        <!-- COLOR MAPPER -->
         <div id="color-mapping-section" style="display: none;">
             <h3>4. Vector Layer Colors (<span id="vector-color-count">0</span>)</h3>
             <div class="control-group">
@@ -160,33 +150,27 @@
             </div>
         </div>
 
-        <!-- 5. INK/STITCH-LIKE EMBROIDERY PARAMETERS -->
         <h3>5. Geometry Digitizing Parameters</h3>
         <div class="control-group">
             <label>Tatami Fill Density (Row Pitch): <span id="val-density" style="color:#00a8ff;">0.40 mm</span></label>
             <input type="range" id="param-density" min="0.20" max="1.0" step="0.05" value="0.40">
         </div>
-
         <div class="control-group">
             <label>Tatami Fill Angle: <span id="val-angle" style="color:#00a8ff;">45°</span></label>
             <input type="range" id="param-angle" min="0" max="180" step="5" value="45">
         </div>
-
         <div class="control-group">
             <label>Max Stitch Length: <span id="val-max-length" style="color:#00a8ff;">3.5 mm</span></label>
             <input type="range" id="param-max-length" min="1.5" max="7.0" step="0.5" value="3.5">
         </div>
-
         <div class="control-group">
             <label>Pull Compensation (Inset/Expand): <span id="val-pull-comp" style="color:#00a8ff;">0.15 mm</span></label>
             <input type="range" id="param-pull-comp" min="0.0" max="0.5" step="0.05" value="0.15">
         </div>
-
         <div class="control-group">
             <label>Jump / Trim Distance Threshold: <span id="val-trim-dist" style="color:#00a8ff;">6.0 mm</span></label>
             <input type="range" id="param-trim-dist" min="2.0" max="15.0" step="1.0" value="6.0">
         </div>
-
         <div class="control-group" style="margin-top:4px;">
             <label class="checkbox-row">
                 <input type="checkbox" id="param-underlay" checked> Generate Underlay Contour Run
@@ -196,7 +180,6 @@
             </label>
         </div>
 
-        <!-- 6. THREAD PALETTE -->
         <h3>6. Thread Palette</h3>
         <div class="control-group">
             <div class="palette" id="thread-palette">
@@ -213,17 +196,14 @@
             </div>
         </div>
 
-        <!-- 7. PREVIEW & EXPORT -->
         <h3>7. Stitch Preview & PES Output</h3>
         <div class="stats-badge" id="stitch-stats">Stitches: 0 | Colors: 0 | Jumps: 0</div>
         <button id="toggle-preview-btn" style="background: #2e7d32; margin-top: 6px;">Toggle Realistic Stitch Engine Preview</button>
         <button id="export-pes-btn" style="background: #00a8ff; font-weight: bold; margin-top: 5px;">Export Valid Brother .PES File</button>
     </div>
 
-    <!-- RESIZER -->
     <div id="resizer"></div>
 
-    <!-- WORKSPACE -->
     <div id="workspace">
         <div id="canvas-toolbar">
             <div class="toolbar-group">
@@ -283,7 +263,6 @@
         const overlayCanvas = document.getElementById('stitch-preview-canvas');
         const overlayCtx = overlayCanvas.getContext('2d');
 
-        // UNDO SYSTEM
         function saveCanvasState() {
             if (isUndoStateLock) return;
             if (undoStack.length >= 25) undoStack.shift();
@@ -310,7 +289,6 @@
         canvas.on('object:modified', saveCanvasState);
         canvas.on('object:removed', saveCanvasState);
 
-        // SIDEBAR RESIZER
         const sidebar = document.getElementById('sidebar');
         const resizer = document.getElementById('resizer');
         let isResizing = false;
@@ -323,9 +301,7 @@
 
         window.addEventListener('mousemove', (e) => {
             if (!isResizing) return;
-            if (e.clientX >= 320 && e.clientX <= 800) {
-                sidebar.style.width = e.clientX + 'px';
-            }
+            if (e.clientX >= 320 && e.clientX <= 800) sidebar.style.width = e.clientX + 'px';
         });
 
         window.addEventListener('mouseup', () => {
@@ -336,11 +312,17 @@
             }
         });
 
-        // CANVAS ZOOM & RULERS
         function setZoom(newZoom) {
             zoomLevel = Math.min(Math.max(newZoom, 0.3), 3.0);
             document.getElementById('zoom-level-text').innerText = Math.round(zoomLevel * 100) + '%';
-            document.getElementById('canvas-wrapper').style.transform = `scale(${zoomLevel})`;
+            
+            const wrapper = document.getElementById('canvas-wrapper');
+            wrapper.style.transform = `scale(${zoomLevel})`;
+            
+            const area = document.getElementById('canvas-area');
+            area.style.width = (30 + canvas.width * zoomLevel) + 'px';
+            area.style.height = (30 + canvas.height * zoomLevel) + 'px';
+            
             drawRulers(canvas.width, canvas.height);
         }
 
@@ -364,7 +346,7 @@
             wrapper.style.width = pxW + 'px';
             wrapper.style.height = pxH + 'px';
 
-            drawRulers(pxW, pxH);
+            setZoom(zoomLevel);
             if (previewActive) renderStitchPreview();
         }
 
@@ -418,7 +400,6 @@
             updateHoopSize();
         });
 
-        // IMAGE UPLOAD & CLEANUP
         document.getElementById('img-upload').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -459,6 +440,12 @@
             const imgData = ctx.getImageData(0, 0, w, h);
             const data = imgData.data;
 
+            const bgR = data[0], bgG = data[1], bgB = data[2], bgA = data[3];
+            const isBgWhite = bgA === 0 || (bgR > 200 && bgG > 200 && bgB > 200);
+            const tR = isBgWhite ? 255 : bgR;
+            const tG = isBgWhite ? 255 : bgG;
+            const tB = isBgWhite ? 255 : bgB;
+
             const visited = new Uint8Array(w * h);
             const queue = [];
             for (let x = 0; x < w; x++) { queue.push(x, 0, x, h - 1); }
@@ -467,12 +454,18 @@
             let qIdx = 0;
             while (qIdx < queue.length) {
                 const x = queue[qIdx++], y = queue[qIdx++];
+                if (x < 0 || x >= w || y < 0 || y >= h) continue;
+                
                 const pIdx = y * w + x;
-                if (x < 0 || x >= w || y < 0 || y >= h || visited[pIdx]) continue;
+                if (visited[pIdx]) continue;
                 visited[pIdx] = 1;
 
                 const dataIdx = pIdx * 4;
-                if (data[dataIdx + 3] > 0 && data[dataIdx] > 220 && data[dataIdx + 1] > 220 && data[dataIdx + 2] > 220) {
+                if (data[dataIdx + 3] > 0 && 
+                    Math.abs(data[dataIdx] - tR) < 35 && 
+                    Math.abs(data[dataIdx + 1] - tG) < 35 && 
+                    Math.abs(data[dataIdx + 2] - tB) < 35) {
+                    
                     data[dataIdx + 3] = 0;
                     queue.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
                 }
@@ -480,29 +473,25 @@
 
             ctx.putImageData(imgData, 0, 0);
             const cleanedImg = new Image();
-            cleanedImg.src = tempCanvas.toDataURL();
             cleanedImg.onload = function() {
-                activeObj.setElement(cleanedImg);
-                canvas.renderAll();
-                saveCanvasState();
+                activeObj.setSrc(cleanedImg.src, function() {
+                    canvas.renderAll();
+                    saveCanvasState();
+                });
             };
+            cleanedImg.src = tempCanvas.toDataURL();
         });
 
-        // FIXED SLIDER EVENTS
         document.getElementById('color-count-slider').addEventListener('input', function() {
             document.getElementById('color-count-val').innerText = this.value;
         });
-        document.getElementById('color-count-slider').addEventListener('change', function() {
-            triggerLiveVectorTracing();
-        });
+        document.getElementById('color-count-slider').addEventListener('change', triggerLiveVectorTracing);
 
         document.getElementById('noise-slider').addEventListener('input', function() {
             const labels = ['Very Low', 'Low', 'Low-Med', 'Medium', 'Medium', 'High', 'High', 'Aggressive', 'Very Aggressive', 'Maximum'];
             document.getElementById('noise-filter-val').innerText = labels[this.value - 1];
         });
-        document.getElementById('noise-slider').addEventListener('change', function() {
-            triggerLiveVectorTracing();
-        });
+        document.getElementById('noise-slider').addEventListener('change', triggerLiveVectorTracing);
 
         document.getElementById('btn-trace-vector').addEventListener('click', executeVectorTracing);
 
@@ -510,7 +499,6 @@
             if (currentVectorGroup || workingImageObject) executeVectorTracing();
         }
 
-        // NEW K-MEANS + MOORE TRACING ENGINE
         function executeVectorTracing() {
             let targetImgObj = workingImageObject || canvas.getActiveObject();
             if (!targetImgObj || targetImgObj.type !== 'image') return;
@@ -630,6 +618,7 @@
 
                     const poly = new fabric.Polygon(relativePts, {
                         fill: hexColor,
+                        originalFill: hexColor, 
                         strokeWidth: 0,
                         left: imgObj.left + scaledMinX,
                         top: imgObj.top + scaledMinY,
@@ -744,17 +733,21 @@
         }
 
         function extractVectorColors(group) {
-            const uniqueColors = new Set();
+            const uniqueColors = new Map();
             function traverse(obj) {
-                if (obj.fill && typeof obj.fill === 'string' && obj.fill !== 'none') uniqueColors.add(obj.fill.toLowerCase());
+                if (obj.originalFill) {
+                    if (!uniqueColors.has(obj.originalFill)) {
+                        uniqueColors.set(obj.originalFill, obj.fill);
+                    }
+                }
                 if (obj._objects) obj._objects.forEach(traverse);
             }
             traverse(group);
             
-            vectorColorMap = Array.from(uniqueColors).map((hex, idx) => ({
+            vectorColorMap = Array.from(uniqueColors.entries()).map(([orig, current], idx) => ({
                 id: idx,
-                origHex: hexToNormalizedHex(hex),
-                targetHex: hexToNormalizedHex(hex)
+                origHex: orig,
+                targetHex: current
             }));
 
             selectedColorIndex = vectorColorMap.length > 0 ? 0 : null;
@@ -786,7 +779,6 @@
             });
         }
 
-        // TEXT CREATION
         document.getElementById('add-text-btn').addEventListener('click', () => {
             const textVal = document.getElementById('text-input').value || 'SHIFTY';
             const fontFamily = document.getElementById('font-select').value;
@@ -814,7 +806,6 @@
             }
         });
 
-        // EMBROIDERY PARAMETER BINDINGS
         const paramIds = [
             ['param-density', 'val-density', ' mm'],
             ['param-angle', 'val-angle', '°'],
@@ -835,7 +826,6 @@
             });
         });
 
-        // THREAD PALETTE BINDING
         document.querySelectorAll('#thread-palette .swatch').forEach(swatch => {
             swatch.addEventListener('click', function() {
                 document.querySelectorAll('#thread-palette .swatch').forEach(s => s.classList.remove('active'));
@@ -848,11 +838,10 @@
                         activeObj.set('fill', activeThreadColor);
                     } else if (selectedColorIndex !== null && vectorColorMap[selectedColorIndex]) {
                         const target = vectorColorMap[selectedColorIndex];
-                        const oldHex = target.targetHex.toLowerCase();
                         target.targetHex = activeThreadColor;
                         
                         function updateFills(o) {
-                            if (o.fill && hexToNormalizedHex(o.fill).toLowerCase() === oldHex) o.set('fill', activeThreadColor);
+                            if (o.originalFill === target.origHex) o.set('fill', activeThreadColor);
                             if (o._objects) o._objects.forEach(updateFills);
                         }
                         updateFills(activeObj);
@@ -888,10 +877,6 @@
                 if (active.fontFamily) document.getElementById('font-select').value = active.fontFamily;
             }
         }
-
-        // =========================================================================
-        // REAL VECTOR GEOMETRY STITCH GENERATION ENGINE (TATAMI / UNDERLAY)
-        // =========================================================================
 
         function generateVectorStitches() {
             const objects = canvas.getObjects();
@@ -1156,7 +1141,6 @@
             newStitches.forEach(st => targetStream.push(st));
         }
 
-        // RENDER PREVIEW
         let previewActive = false;
         document.getElementById('toggle-preview-btn').addEventListener('click', () => {
             previewActive = !previewActive;
@@ -1213,7 +1197,6 @@
             });
         }
 
-        // BINARY PEC / PES ENCODER
         const PEC_THREAD_PALETTE = [
             '#1a0a94','#0f75ff','#00934c','#babdfe','#ec0000','#e4995a','#cc48ab','#fdc4fa',
             '#dd84cd','#6bd38a','#e4a945','#ffbd42','#ffe600','#6cd900','#c1a941','#b5ad97',
