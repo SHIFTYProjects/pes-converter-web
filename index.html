@@ -39,7 +39,7 @@
         .swatch:hover, .swatch.active { transform: scale(1.2); border-color: #00a8ff; z-index: 2; }
 
         .color-map-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; background: #161616; padding: 8px; border-radius: 6px; border: 1px solid #333; }
-        .color-map-row { display: flex; align-items: center; justify-content: space-between; background: #222; padding: 6px 10px; border-radius: 4px; border: 1px solid #333; cursor: pointer; }
+        .color-map-row { display: flex; align-items: center; justify-space-between; background: #222; padding: 6px 10px; border-radius: 4px; border: 1px solid #333; cursor: pointer; }
         .color-map-row.selected { border-color: #00a8ff; background: #2a2a2a; }
         .color-preview-pair { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
 
@@ -193,8 +193,12 @@
         </div>
 
         <div class="control-group">
-            <label>Layer Ordering & Deletion:</label>
+            <label>Layer Ordering:</label>
             <div class="row">
+                <button id="btn-up">Move Up ▲</button>
+                <button id="btn-down">Move Down ▼</button>
+            </div>
+            <div class="row" style="margin-top: 4px;">
                 <button id="btn-front">Bring to Front</button>
                 <button id="btn-back">Send to Back</button>
             </div>
@@ -720,44 +724,67 @@
             if (previewActive) renderStitchPreview();
         });
 
-        // THREAD PALETTE ASSIGNMENT
+        // THREAD PALETTE ASSIGNMENT & SELECTION BINDING
         document.querySelectorAll('#thread-palette .swatch').forEach(swatch => {
             swatch.addEventListener('click', function() {
                 document.querySelectorAll('#thread-palette .swatch').forEach(s => s.classList.remove('active'));
                 this.classList.add('active');
                 activeThreadColor = this.dataset.color;
-                applyThreadColorToVector(activeThreadColor);
+                applyThreadColorToSelected(activeThreadColor);
             });
         });
 
         document.getElementById('custom-thread-color').addEventListener('input', function() {
             activeThreadColor = this.value;
-            applyThreadColorToVector(activeThreadColor);
+            applyThreadColorToSelected(activeThreadColor);
         });
 
-        function applyThreadColorToVector(newColorHex) {
-            if (selectedColorIndex === null || !vectorColorMap[selectedColorIndex] || !currentVectorGroup) return;
+        // RECOLOR DYNAMICALLY BASED ON ACTIVE SELECTION (TEXT, SHAPE, OR VECTOR LAYER)
+        function applyThreadColorToSelected(newColorHex) {
+            const activeObj = canvas.getActiveObject();
+            if (!activeObj) return;
 
-            const targetItem = vectorColorMap[selectedColorIndex];
-            const oldColorHex = targetItem.targetHex.toLowerCase();
-            targetItem.targetHex = newColorHex;
-
-            function updatePathFills(obj) {
-                if (obj.fill && typeof obj.fill === 'string') {
-                    if (hexToNormalizedHex(obj.fill).toLowerCase() === oldColorHex) {
-                        obj.set('fill', newColorHex);
-                    }
-                }
-                if (obj._objects) {
-                    obj._objects.forEach(updatePathFills);
-                }
+            // 1. If active object is Text or IText
+            if (activeObj.type === 'text' || activeObj.type === 'i-text') {
+                activeObj.set('fill', newColorHex);
+                canvas.renderAll();
+                saveCanvasState();
+                if (previewActive) renderStitchPreview();
+                return;
             }
 
-            updatePathFills(currentVectorGroup);
-            renderVectorColorMapUI();
-            canvas.renderAll();
-            saveCanvasState();
-            if (previewActive) renderStitchPreview();
+            // 2. If active object is a Vector Group
+            if ((activeObj === currentVectorGroup || activeObj.type === 'group') && selectedColorIndex !== null && vectorColorMap[selectedColorIndex]) {
+                const targetItem = vectorColorMap[selectedColorIndex];
+                const oldColorHex = targetItem.targetHex.toLowerCase();
+                targetItem.targetHex = newColorHex;
+
+                function updatePathFills(obj) {
+                    if (obj.fill && typeof obj.fill === 'string') {
+                        if (hexToNormalizedHex(obj.fill).toLowerCase() === oldColorHex) {
+                            obj.set('fill', newColorHex);
+                        }
+                    }
+                    if (obj._objects) {
+                        obj._objects.forEach(updatePathFills);
+                    }
+                }
+
+                updatePathFills(activeObj);
+                renderVectorColorMapUI();
+                canvas.renderAll();
+                saveCanvasState();
+                if (previewActive) renderStitchPreview();
+                return;
+            }
+
+            // 3. Fallback for single path or general shape
+            if (activeObj.set) {
+                activeObj.set('fill', newColorHex);
+                canvas.renderAll();
+                saveCanvasState();
+                if (previewActive) renderStitchPreview();
+            }
         }
 
         // TEXT CREATION
@@ -766,16 +793,28 @@
             const fontFamily = document.getElementById('font-select').value;
 
             const text = new fabric.Text(textVal, {
-                left: 50, top: 50,
+                left: 60, top: 60,
                 fontFamily: fontFamily,
                 fill: activeThreadColor,
                 fontSize: 48
             });
             canvas.add(text);
             canvas.setActiveObject(text);
+            canvas.renderAll();
+            saveCanvasState();
         });
 
-        // LAYER MANAGEMENT
+        // GRANULAR LAYER STEPPING & ORDERING
+        document.getElementById('btn-up').addEventListener('click', () => {
+            const active = canvas.getActiveObject();
+            if (active) { canvas.bringForward(active); canvas.renderAll(); saveCanvasState(); }
+        });
+
+        document.getElementById('btn-down').addEventListener('click', () => {
+            const active = canvas.getActiveObject();
+            if (active) { canvas.sendBackwards(active); canvas.renderAll(); saveCanvasState(); }
+        });
+
         document.getElementById('btn-front').addEventListener('click', () => {
             const active = canvas.getActiveObject();
             if (active) { canvas.bringToFront(active); canvas.renderAll(); saveCanvasState(); }
@@ -808,6 +847,25 @@
             }
         });
 
+        // HANDLE CANVAS SELECTION & UPDATE WORKING LAYER
+        function handleSelectionChange() {
+            const active = canvas.getActiveObject();
+            updateObjectInputs();
+
+            if (!active) return;
+
+            // If selected object is a vector group, switch context
+            if (active.type === 'group' && active._objects) {
+                currentVectorGroup = active;
+                extractVectorColors(active);
+                document.getElementById('color-mapping-section').style.display = 'block';
+            } else if (active.type === 'text' || active.type === 'i-text') {
+                if (typeof active.fill === 'string') {
+                    activeThreadColor = active.fill;
+                }
+            }
+        }
+
         function updateObjectInputs() {
             const active = canvas.getActiveObject();
             const wInput = document.getElementById('obj-w');
@@ -823,9 +881,11 @@
             }
         }
 
-        canvas.on('selection:created', updateObjectInputs);
-        canvas.on('selection:updated', updateObjectInputs);
-        canvas.on('selection:cleared', updateObjectInputs);
+        canvas.on('selection:created', handleSelectionChange);
+        canvas.on('selection:updated', handleSelectionChange);
+        canvas.on('selection:cleared', () => {
+            updateObjectInputs();
+        });
 
         // STITCH GENERATOR FROM VECTOR OBJECTS
         function generateStitches() {
