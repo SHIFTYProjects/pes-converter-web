@@ -554,13 +554,14 @@
 
             let clusters = [];
             for (let i = 0; i < numColors; i++) {
-                const randPx = pixels[Math.floor(Math.random() * pixels.length)];
-                clusters.push({ r: randPx.r, g: randPx.g, b: randPx.b });
+                const idx = Math.floor((i / numColors) * pixels.length);
+                const p = pixels[idx];
+                clusters.push({ r: p.r, g: p.g, b: p.b });
             }
 
             const pixelLabels = new Int32Array(procW * procH).fill(-1);
 
-            for (let iter = 0; iter < 3; iter++) {
+            for (let iter = 0; iter < 4; iter++) {
                 const sums = Array(numColors).fill(0).map(() => ({r:0, g:0, b:0, count:0}));
                 for (let i = 0; i < pixels.length; i++) {
                     const p = pixels[i];
@@ -593,9 +594,15 @@
                 const hexColor = "#" + (1 << 24 | r << 16 | g << 8 | b).toString(16).slice(1);
                 
                 const grid = new Uint8Array(procW * procH);
+                let clusterPixelCount = 0;
                 for(let i = 0; i < pixelLabels.length; i++) {
-                    if(pixelLabels[i] === c) grid[i] = 1;
+                    if(pixelLabels[i] === c) {
+                        grid[i] = 1;
+                        clusterPixelCount++;
+                    }
                 }
+
+                if (clusterPixelCount < 10) continue;
 
                 let colorPolys = extractContours(grid, procW, procH);
                 
