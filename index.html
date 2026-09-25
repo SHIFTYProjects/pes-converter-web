@@ -10,49 +10,79 @@
     <script src="https://cdn.jsdelivr.net/npm/imagetracerjs@1.2.6/imagetracer_v1.2.6.js"></script>
     <style>
         * { box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; gap: 20px; height: 100vh; overflow: hidden; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 15px; display: flex; height: 100vh; overflow: hidden; user-select: none; }
         
-        /* Sidebar Controls */
-        #sidebar { width: 390px; background: #1e1e1e; padding: 20px; border-radius: 8px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; max-height: calc(100vh - 40px); border: 1px solid #333; }
-        h2 { margin: 0 0 2px 0; font-size: 1.3rem; color: #00a8ff; }
-        h3 { margin: 10px 0 4px 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: #888; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        /* Resizable Sidebar Controls */
+        #sidebar { width: 420px; min-width: 320px; max-width: 800px; background: #1e1e1e; padding: 18px; border-radius: 8px 0 0 8px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; height: calc(100vh - 30px); border: 1px solid #333; }
+        
+        /* Draggable Resizer Bar */
+        #resizer { width: 8px; background: #282828; cursor: col-resize; transition: background 0.2s; border-top: 1px solid #333; border-bottom: 1px solid #333; display: flex; align-items: center; justify-content: center; }
+        #resizer:hover, #resizer.active { background: #00a8ff; }
+        #resizer::after { content: "┊"; color: #888; font-size: 14px; }
+
+        h2 { margin: 0 0 2px 0; font-size: 1.25rem; color: #00a8ff; }
+        h3 { margin: 8px 0 4px 0; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 1px; color: #888; border-bottom: 1px solid #333; padding-bottom: 4px; }
         
         .control-group { display: flex; flex-direction: column; gap: 6px; }
         .row { display: flex; gap: 8px; align-items: center; }
         .row > * { flex: 1; }
 
-        label { font-size: 0.82rem; color: #aaa; }
-        button, select, input[type="text"], input[type="number"], input[type="range"] { padding: 8px 10px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; font-size: 0.88rem; }
-        button { cursor: pointer; background: #333; transition: 0.2s; font-weight: 600; }
+        label { font-size: 0.8rem; color: #aaa; }
+        button, select, input[type="text"], input[type="number"], input[type="range"] { padding: 7px 9px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; font-size: 0.85rem; }
+        button { cursor: pointer; background: #333; transition: 0.2s; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 4px; }
         button:hover { background: #00a8ff; color: #fff; border-color: #00a8ff; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
         
-        /* Swatches & Color Mapping Cards */
-        .palette { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-        .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #444; cursor: pointer; transition: 0.1s; position: relative; }
-        .swatch:hover, .swatch.active { transform: scale(1.15); border-color: #00a8ff; }
+        /* 2 Rows of 10 Swatches Grid */
+        .palette { display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; margin-top: 4px; }
+        .swatch { aspect-ratio: 1; border-radius: 50%; border: 2px solid #444; cursor: pointer; transition: transform 0.1s; position: relative; }
+        .swatch:hover, .swatch.active { transform: scale(1.2); border-color: #00a8ff; z-index: 2; }
 
-        .color-map-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; background: #161616; padding: 8px; border-radius: 6px; border: 1px solid #333; }
+        .color-map-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; background: #161616; padding: 8px; border-radius: 6px; border: 1px solid #333; }
         .color-map-row { display: flex; align-items: center; justify-content: space-between; background: #222; padding: 6px 10px; border-radius: 4px; border: 1px solid #333; cursor: pointer; }
         .color-map-row.selected { border-color: #00a8ff; background: #2a2a2a; }
         .color-preview-pair { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
 
         /* Workspace Area & Rulers */
-        #workspace { flex-grow: 1; display: flex; flex-direction: column; background: #181818; border-radius: 8px; padding: 10px; border: 1px solid #333; position: relative; overflow: auto; }
+        #workspace { flex-grow: 1; display: flex; flex-direction: column; background: #141414; border-radius: 0 8px 8px 0; padding: 10px; border: 1px solid #333; border-left: none; position: relative; overflow: hidden; }
+        
+        /* Top Canvas Toolbar */
+        #canvas-toolbar { display: flex; align-items: center; justify-content: space-between; background: #1e1e1e; padding: 6px 12px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #333; }
+        .toolbar-group { display: flex; align-items: center; gap: 8px; }
+
+        #canvas-viewport { flex-grow: 1; overflow: auto; display: flex; position: relative; background: #0a0a0a; border-radius: 6px; border: 1px solid #222; }
         #canvas-area { position: relative; margin: auto; display: grid; grid-template-columns: 30px 1fr; grid-template-rows: 30px 1fr; }
         
         #ruler-top { grid-column: 2; grid-row: 1; background: #222; border-bottom: 1px solid #444; }
         #ruler-left { grid-column: 1; grid-row: 2; background: #222; border-right: 1px solid #444; }
         #ruler-corner { grid-column: 1; grid-row: 1; background: #1a1a1a; border-right: 1px solid #444; border-bottom: 1px solid #444; }
         
-        #canvas-wrapper { grid-column: 2; grid-row: 2; position: relative; background: #ffffff; border: 2px dashed #00a8ff; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        /* Transparent Checkerboard Canvas Wrapper */
+        #canvas-wrapper { 
+            grid-column: 2; grid-row: 2; position: relative; 
+            background-color: #ffffff;
+            background-image: 
+                linear-gradient(45deg, #d0d0d0 25%, transparent 25%), 
+                linear-gradient(-45deg, #d0d0d0 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #d0d0d0 75%), 
+                linear-gradient(-45deg, transparent 75%, #d0d0d0 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            border: 2px dashed #00a8ff; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
+            transform-origin: 0 0;
+        }
         #stitch-preview-canvas { position: absolute; top: 0; left: 0; pointer-events: none; display: none; z-index: 10; background: #1a1a1a; }
     </style>
 </head>
 <body>
 
-    <!-- SIDEBAR CONTROL PANEL -->
+    <!-- RESIZABLE SIDEBAR CONTROL PANEL -->
     <div id="sidebar">
-        <h2>PES Embroidery Studio</h2>
+        <div class="row" style="justify-content: space-between; align-items: center;">
+            <h2>PES Embroidery Studio</h2>
+            <button id="btn-undo" style="background:#2a2a2a; border-color:#00a8ff; padding: 4px 10px;" title="Undo Action (Ctrl+Z)" disabled>↶ Undo</button>
+        </div>
 
         <!-- HOOP CONFIGURATION -->
         <h3>1. Hoop & Orientation</h3>
@@ -170,12 +200,13 @@
             <button id="btn-delete" style="background: #c62828; margin-top: 4px;">Delete Selected (Del / Backspace)</button>
         </div>
 
-        <!-- THREAD COLORS PALETTE -->
-        <h3>6. Thread Palette</h3>
+        <!-- THREAD COLORS PALETTE (2 ROWS OF 10) -->
+        <h3>6. Thread Palette (20 Colors)</h3>
         <div class="control-group">
             <div class="palette" id="thread-palette">
+                <!-- Row 1 -->
                 <div class="swatch active" style="background:#003DA5;" data-color="#003DA5" title="Royal Blue"></div>
-                <div class="swatch" style="background:#00205B;" data-color="#00205B" title="Navy"></div>
+                <div class="swatch" style="background:#00205B;" data-color="#00205B" title="Navy Blue"></div>
                 <div class="swatch" style="background:#E31B23;" data-color="#E31B23" title="Red"></div>
                 <div class="swatch" style="background:#00843D;" data-color="#00843D" title="Emerald Green"></div>
                 <div class="swatch" style="background:#FFD100;" data-color="#FFD100" title="Yellow"></div>
@@ -183,9 +214,22 @@
                 <div class="swatch" style="background:#685BC7;" data-color="#685BC7" title="Purple"></div>
                 <div class="swatch" style="background:#000000;" data-color="#000000" title="Black"></div>
                 <div class="swatch" style="background:#FFFFFF; border-color:#aaa;" data-color="#FFFFFF" title="White"></div>
+                <div class="swatch" style="background:#808080;" data-color="#808080" title="Grey"></div>
+                
+                <!-- Row 2 -->
+                <div class="swatch" style="background:#D3D3D3;" data-color="#D3D3D3" title="Light Grey"></div>
+                <div class="swatch" style="background:#404040;" data-color="#404040" title="Dark Grey"></div>
+                <div class="swatch" style="background:#FF69B4;" data-color="#FF69B4" title="Hot Pink"></div>
+                <div class="swatch" style="background:#00FFFF;" data-color="#00FFFF" title="Cyan"></div>
+                <div class="swatch" style="background:#8B4513;" data-color="#8B4513" title="Brown"></div>
+                <div class="swatch" style="background:#FFD700;" data-color="#FFD700" title="Gold"></div>
+                <div class="swatch" style="background:#32CD32;" data-color="#32CD32" title="Lime Green"></div>
+                <div class="swatch" style="background:#800000;" data-color="#800000" title="Maroon"></div>
+                <div class="swatch" style="background:#008080;" data-color="#008080" title="Teal"></div>
+                <div class="swatch" style="background:#FF00FF;" data-color="#FF00FF" title="Magenta"></div>
             </div>
             <div class="row" style="margin-top: 8px;">
-                <label>Custom Thread Color Picker:</label>
+                <label>Custom Thread Picker:</label>
                 <input type="color" id="custom-thread-color" value="#003DA5">
             </div>
         </div>
@@ -196,16 +240,34 @@
         <button id="export-pes-btn" style="background: #00a8ff; font-weight: bold; margin-top: 5px;">Export Brother .PES File</button>
     </div>
 
+    <!-- DRAGGABLE RESIZER HANDLE -->
+    <div id="resizer"></div>
+
     <!-- MAIN WORKSPACE / CANVAS AREA -->
     <div id="workspace">
-        <div id="canvas-area">
-            <div id="ruler-corner"></div>
-            <canvas id="ruler-top"></canvas>
-            <canvas id="ruler-left"></canvas>
+        <div id="canvas-toolbar">
+            <div class="toolbar-group">
+                <span style="font-size: 0.85rem; color:#aaa;">Canvas Zoom:</span>
+                <button id="btn-zoom-out" style="padding: 3px 8px;">-</button>
+                <span id="zoom-level-text" style="font-size:0.85rem; font-weight:bold; width: 45px; text-align:center;">100%</span>
+                <button id="btn-zoom-in" style="padding: 3px 8px;">+</button>
+                <button id="btn-zoom-reset" style="padding: 3px 8px; font-size: 0.75rem;">Reset</button>
+            </div>
+            <div class="toolbar-group" style="font-size: 0.78rem; color: #888;">
+                <span>Checkered grid indicates transparent background</span>
+            </div>
+        </div>
 
-            <div id="canvas-wrapper">
-                <canvas id="main-canvas"></canvas>
-                <canvas id="stitch-preview-canvas"></canvas>
+        <div id="canvas-viewport">
+            <div id="canvas-area">
+                <div id="ruler-corner"></div>
+                <canvas id="ruler-top"></canvas>
+                <canvas id="ruler-left"></canvas>
+
+                <div id="canvas-wrapper">
+                    <canvas id="main-canvas"></canvas>
+                    <canvas id="stitch-preview-canvas"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -224,6 +286,7 @@
         let currentHoop = { w: 5, h: 7 };
         let isLandscape = false;
         let activeThreadColor = '#003DA5';
+        let zoomLevel = 1.0;
 
         // Original image backup & state
         let originalImageElement = null;
@@ -231,9 +294,85 @@
         let selectedColorIndex = null;
         let vectorColorMap = [];
 
-        const canvas = new fabric.Canvas('main-canvas', { selection: true });
+        // UNDO SYSTEM STACK
+        const undoStack = [];
+        let isUndoStateLock = false;
+
+        const canvas = new fabric.Canvas('main-canvas', { 
+            selection: true,
+            backgroundColor: 'transparent' // Allow checkerboard CSS pattern to show through
+        });
         const overlayCanvas = document.getElementById('stitch-preview-canvas');
         const overlayCtx = overlayCanvas.getContext('2d');
+
+        function saveCanvasState() {
+            if (isUndoStateLock) return;
+            if (undoStack.length >= 25) undoStack.shift();
+            undoStack.push(JSON.stringify(canvas.toJSON()));
+            document.getElementById('btn-undo').disabled = undoStack.length <= 1;
+        }
+
+        function undo() {
+            if (undoStack.length > 1) {
+                undoStack.pop(); // Remove current state
+                const prevState = undoStack[undoStack.length - 1];
+                isUndoStateLock = true;
+                canvas.loadFromJSON(prevState, () => {
+                    canvas.renderAll();
+                    isUndoStateLock = false;
+                    document.getElementById('btn-undo').disabled = undoStack.length <= 1;
+                    if (previewActive) renderStitchPreview();
+                });
+            }
+        }
+
+        document.getElementById('btn-undo').addEventListener('click', undo);
+
+        canvas.on('object:added', () => saveCanvasState());
+        canvas.on('object:modified', () => saveCanvasState());
+        canvas.on('object:removed', () => saveCanvasState());
+
+        // RESIZABLE SIDEBAR LOGIC
+        const sidebar = document.getElementById('sidebar');
+        const resizer = document.getElementById('resizer');
+        let isResizing = false;
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            resizer.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const newWidth = e.clientX;
+            if (newWidth >= 300 && newWidth <= 800) {
+                sidebar.style.width = newWidth + 'px';
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                resizer.classList.remove('active');
+                document.body.style.cursor = 'default';
+            }
+        });
+
+        // CANVAS ZOOM LOGIC
+        function setZoom(newZoom) {
+            zoomLevel = Math.min(Math.max(newZoom, 0.3), 3.0);
+            document.getElementById('zoom-level-text').innerText = Math.round(zoomLevel * 100) + '%';
+            
+            const wrapper = document.getElementById('canvas-wrapper');
+            wrapper.style.transform = `scale(${zoomLevel})`;
+            
+            drawRulers(canvas.width, canvas.height);
+        }
+
+        document.getElementById('btn-zoom-in').addEventListener('click', () => setZoom(zoomLevel + 0.15));
+        document.getElementById('btn-zoom-out').addEventListener('click', () => setZoom(zoomLevel - 0.15));
+        document.getElementById('btn-zoom-reset').addEventListener('click', () => setZoom(1.0));
 
         function updateHoopSize() {
             let widthInches = currentHoop.w;
@@ -264,34 +403,41 @@
         function drawRulers(pxW, pxH) {
             const rTop = document.getElementById('ruler-top');
             const rLeft = document.getElementById('ruler-left');
-            rTop.width = pxW; rTop.height = 30;
-            rLeft.width = 30; rLeft.height = pxH;
+            
+            const scaledW = pxW * zoomLevel;
+            const scaledH = pxH * zoomLevel;
+
+            rTop.width = scaledW; rTop.height = 30;
+            rLeft.width = 30; rLeft.height = scaledH;
 
             const ctxT = rTop.getContext('2d');
             const ctxL = rLeft.getContext('2d');
 
-            ctxT.fillStyle = '#222'; ctxT.fillRect(0,0,pxW,30);
-            ctxL.fillStyle = '#222'; ctxL.fillRect(0,0,30,pxH);
+            ctxT.fillStyle = '#222'; ctxT.fillRect(0,0,scaledW,30);
+            ctxL.fillStyle = '#222'; ctxL.fillRect(0,0,30,scaledH);
 
             ctxT.fillStyle = '#aaa'; ctxT.strokeStyle = '#666'; ctxT.font = '10px sans-serif';
             ctxL.fillStyle = '#aaa'; ctxL.strokeStyle = '#666'; ctxL.font = '10px sans-serif';
 
-            for (let x = 0; x <= pxW; x += DPI / 4) {
-                const isFullInch = x % DPI === 0;
-                const tickH = isFullInch ? 15 : (x % (DPI/2) === 0 ? 10 : 5);
+            const step = (DPI / 4) * zoomLevel;
+            const fullInchStep = DPI * zoomLevel;
+
+            for (let x = 0; x <= scaledW; x += step) {
+                const isFullInch = Math.abs(x % fullInchStep) < 1;
+                const tickH = isFullInch ? 15 : 6;
                 ctxT.beginPath(); ctxT.moveTo(x, 30); ctxT.lineTo(x, 30 - tickH); ctxT.stroke();
-                if (isFullInch && x < pxW) ctxT.fillText(`${Math.round(x/DPI)}"`, x + 3, 14);
+                if (isFullInch && x < scaledW) ctxT.fillText(`${Math.round(x/fullInchStep)}"`, x + 3, 14);
             }
 
-            for (let y = 0; y <= pxH; y += DPI / 4) {
-                const isFullInch = y % DPI === 0;
-                const tickW = isFullInch ? 15 : (y % (DPI/2) === 0 ? 10 : 5);
+            for (let y = 0; y <= scaledH; y += step) {
+                const isFullInch = Math.abs(y % fullInchStep) < 1;
+                const tickW = isFullInch ? 15 : 6;
                 ctxL.beginPath(); ctxL.moveTo(30, y); ctxL.lineTo(30 - tickW, y); ctxL.stroke();
-                if (isFullInch && y < pxH) ctxL.fillText(`${Math.round(y/DPI)}"`, 4, y + 12);
+                if (isFullInch && y < scaledH) ctxL.fillText(`${Math.round(y/fullInchStep)}"`, 4, y + 12);
             }
         }
 
-        // Hoop & Orientation Event Handlers
+        // Hoop & Orientation Handlers
         document.getElementById('hoop-select').addEventListener('change', (e) => {
             const val = e.target.value;
             const customBox = document.getElementById('custom-hoop-inputs');
@@ -374,6 +520,7 @@
             cleanedImg.onload = function() {
                 activeObj.setElement(cleanedImg);
                 canvas.renderAll();
+                saveCanvasState();
             };
         });
 
@@ -407,13 +554,12 @@
             const numColors = parseInt(document.getElementById('color-count-slider').value);
             const noiseVal = parseInt(document.getElementById('noise-slider').value);
 
-            // Options for ImageTracer
             const traceOptions = {
                 numberofcolors: numColors,
-                pathomit: noiseVal * 4, // Filters small speckle paths
-                blurradius: 1, // Smooths anti-aliased jagged borders
-                colorsampling: 2, // Deterministic sampling
-                strokewidth: 0, // Fill paths only
+                pathomit: noiseVal * 4, 
+                blurradius: 1, 
+                colorsampling: 2, 
+                strokewidth: 0, 
                 viewbox: true
             };
 
@@ -438,6 +584,7 @@
                 extractVectorColors(vectorGroup);
                 document.getElementById('color-mapping-section').style.display = 'block';
                 canvas.renderAll();
+                saveCanvasState();
                 if (previewActive) renderStitchPreview();
             });
         });
@@ -514,10 +661,11 @@
             document.getElementById('color-mapping-section').style.display = 'none';
             document.getElementById('vector-pipeline-section').style.display = 'block';
             canvas.renderAll();
+            saveCanvasState();
             if (previewActive) renderStitchPreview();
         });
 
-        // THREAD PALETTE ASSIGNMENT TO VECTOR LAYERS
+        // THREAD PALETTE ASSIGNMENT
         document.querySelectorAll('#thread-palette .swatch').forEach(swatch => {
             swatch.addEventListener('click', function() {
                 document.querySelectorAll('#thread-palette .swatch').forEach(s => s.classList.remove('active'));
@@ -553,6 +701,7 @@
             updatePathFills(currentVectorGroup);
             renderVectorColorMapUI();
             canvas.renderAll();
+            saveCanvasState();
             if (previewActive) renderStitchPreview();
         }
 
@@ -574,12 +723,12 @@
         // LAYER MANAGEMENT
         document.getElementById('btn-front').addEventListener('click', () => {
             const active = canvas.getActiveObject();
-            if (active) { canvas.bringToFront(active); canvas.renderAll(); }
+            if (active) { canvas.bringToFront(active); canvas.renderAll(); saveCanvasState(); }
         });
 
         document.getElementById('btn-back').addEventListener('click', () => {
             const active = canvas.getActiveObject();
-            if (active) { canvas.sendToBack(active); canvas.renderAll(); }
+            if (active) { canvas.sendToBack(active); canvas.renderAll(); saveCanvasState(); }
         });
 
         function deleteActiveObjects() {
@@ -598,6 +747,9 @@
             if ((e.key === 'Delete' || e.key === 'Backspace') && 
                 !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
                 deleteActiveObjects();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                undo();
             }
         });
 
@@ -636,7 +788,7 @@
                 tempCanvas.height = canvas.height;
                 const tCtx = tempCanvas.getContext('2d');
 
-                const staticCanvas = new fabric.StaticCanvas(null, { width: canvas.width, height: canvas.height });
+                const staticCanvas = new fabric.StaticCanvas(null, { width: canvas.width, height: canvas.height, backgroundColor: 'transparent' });
                 staticCanvas.add(obj);
                 staticCanvas.renderAll();
                 tCtx.drawImage(staticCanvas.getElement(), 0, 0);
@@ -708,7 +860,7 @@
                 const stitches = block.stitches;
                 if (stitches.length < 2) return;
 
-                // Pass 1: Drop Shadow
+                // Drop Shadow
                 overlayCtx.strokeStyle = 'rgba(0,0,0,0.5)';
                 overlayCtx.lineWidth = 2.2;
                 overlayCtx.beginPath();
@@ -721,7 +873,7 @@
                 }
                 overlayCtx.stroke();
 
-                // Pass 2: Main Thread
+                // Main Thread
                 overlayCtx.strokeStyle = block.color;
                 overlayCtx.lineWidth = 1.8;
                 overlayCtx.lineCap = 'round';
@@ -840,6 +992,7 @@
         }
 
         updateHoopSize();
+        saveCanvasState();
     </script>
 </body>
 </html>
