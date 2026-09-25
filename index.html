@@ -4,62 +4,286 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PES Embroidery Studio - Vector Geometry Digitizer</title>
+    
     <!-- Google Fonts Library -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Anton&family=Lobster&family=Montserrat:wght@400;700&family=Open+Sans:wght@400;700&family=Oswald:wght@500;700&family=Pacifico&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
     
-    <!-- Fabric.js & ImageTracer.js -->
+    <!-- Fabric.js, ImageTracer.js & Pyodide (Python WebAssembly) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/imagetracerjs@1.2.6/imagetracer_v1.2.6.js"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+
     <style>
-        * { box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 15px; display: flex; height: 100vh; overflow: hidden; user-select: none; }
+        * { 
+            box-sizing: border-box; 
+        }
         
-        #sidebar { width: 440px; min-width: 340px; max-width: 800px; background: #1e1e1e; padding: 18px; border-radius: 8px 0 0 8px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; height: calc(100vh - 30px); border: 1px solid #333; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: #121212; 
+            color: #e0e0e0; 
+            margin: 0; 
+            padding: 15px; 
+            display: flex; 
+            height: 100vh; 
+            overflow: hidden; 
+            user-select: none; 
+        }
         
-        #resizer { width: 8px; background: #282828; cursor: col-resize; transition: background 0.2s; border-top: 1px solid #333; border-bottom: 1px solid #333; display: flex; align-items: center; justify-content: center; }
-        #resizer:hover, #resizer.active { background: #00a8ff; }
-        #resizer::after { content: "┊"; color: #888; font-size: 14px; }
-
-        h2 { margin: 0 0 2px 0; font-size: 1.25rem; color: #00a8ff; }
-        h3 { margin: 8px 0 4px 0; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 1px; color: #00a8ff; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        #sidebar { 
+            width: 440px; 
+            min-width: 340px; 
+            max-width: 800px; 
+            background: #1e1e1e; 
+            padding: 18px; 
+            border-radius: 8px 0 0 8px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 12px; 
+            overflow-y: auto; 
+            height: calc(100vh - 30px); 
+            border: 1px solid #333; 
+        }
         
-        .control-group { display: flex; flex-direction: column; gap: 6px; }
-        .row { display: flex; gap: 8px; align-items: center; }
-        .row > * { flex: 1; }
-
-        label { font-size: 0.78rem; color: #aaa; display: flex; justify-content: space-between; }
-        button, select, input[type="text"], input[type="number"], input[type="range"] { padding: 7px 9px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; font-size: 0.85rem; }
-        button { cursor: pointer; background: #333; transition: 0.2s; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid #444; }
-        button:hover { background: #00a8ff; color: #fff; border-color: #00a8ff; }
-        button:disabled { opacity: 0.4; cursor: not-allowed; }
-
-        .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: #ccc; cursor: pointer; }
-        .checkbox-row input { cursor: pointer; }
+        #resizer { 
+            width: 8px; 
+            background: #282828; 
+            cursor: col-resize; 
+            transition: background 0.2s; 
+            border-top: 1px solid #333; 
+            border-bottom: 1px solid #333; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+        }
         
-        .palette { display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; margin-top: 4px; }
-        .swatch { aspect-ratio: 1; border-radius: 50%; border: 2px solid #444; cursor: pointer; transition: transform 0.1s; position: relative; }
-        .swatch:hover, .swatch.active { transform: scale(1.2); border-color: #00a8ff; z-index: 2; }
-
-        .color-map-list { display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow-y: auto; background: #161616; padding: 8px; border-radius: 6px; border: 1px solid #333; }
-        .color-map-row { display: flex; align-items: center; justify-content: space-between; background: #222; padding: 6px 10px; border-radius: 4px; border: 1px solid #333; cursor: pointer; }
-        .color-map-row.selected { border-color: #00a8ff; background: #2a2a2a; }
-        .color-preview-pair { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
-
-        #workspace { flex-grow: 1; display: flex; flex-direction: column; background: #141414; border-radius: 0 8px 8px 0; padding: 10px; border: 1px solid #333; border-left: none; position: relative; overflow: hidden; }
-        #canvas-toolbar { display: flex; align-items: center; justify-content: space-between; background: #1e1e1e; padding: 6px 12px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #333; }
-        .toolbar-group { display: flex; align-items: center; gap: 8px; }
-
-        #canvas-viewport { flex-grow: 1; overflow: auto; display: flex; position: relative; background: #0a0a0a; border-radius: 6px; border: 1px solid #222; }
-        #canvas-area { position: relative; margin: auto; display: grid; grid-template-columns: 30px 1fr; grid-template-rows: 30px 1fr; }
+        #resizer:hover, #resizer.active { 
+            background: #00a8ff; 
+        }
         
-        #ruler-top { grid-column: 2; grid-row: 1; background: #222; border-bottom: 1px solid #444; }
-        #ruler-left { grid-column: 1; grid-row: 2; background: #222; border-right: 1px solid #444; }
-        #ruler-corner { grid-column: 1; grid-row: 1; background: #1a1a1a; border-right: 1px solid #444; border-bottom: 1px solid #444; }
+        #resizer::after { 
+            content: "┊"; 
+            color: #888; 
+            font-size: 14px; 
+        }
+
+        h2 { 
+            margin: 0 0 2px 0; 
+            font-size: 1.25rem; 
+            color: #00a8ff; 
+        }
+        
+        h3 { 
+            margin: 8px 0 4px 0; 
+            font-size: 0.82rem; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+            color: #00a8ff; 
+            border-bottom: 1px solid #333; 
+            padding-bottom: 4px; 
+        }
+        
+        .control-group { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 6px; 
+        }
+        
+        .row { 
+            display: flex; 
+            gap: 8px; 
+            align-items: center; 
+        }
+        
+        .row > * { 
+            flex: 1; 
+        }
+
+        label { 
+            font-size: 0.78rem; 
+            color: #aaa; 
+            display: flex; 
+            justify-content: space-between; 
+        }
+        
+        button, select, input[type="text"], input[type="number"], input[type="range"] { 
+            padding: 7px 9px; 
+            background: #2a2a2a; 
+            color: white; 
+            border: 1px solid #444; 
+            border-radius: 4px; 
+            font-size: 0.85rem; 
+        }
+        
+        button { 
+            cursor: pointer; 
+            background: #333; 
+            transition: 0.2s; 
+            font-weight: 600; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            gap: 4px; 
+            border: 1px solid #444; 
+        }
+        
+        button:hover { 
+            background: #00a8ff; 
+            color: #fff; 
+            border-color: #00a8ff; 
+        }
+        
+        button:disabled { 
+            opacity: 0.4; 
+            cursor: not-allowed; 
+        }
+
+        .checkbox-row { 
+            display: flex; 
+            align-items: center; 
+            gap: 8px; 
+            font-size: 0.8rem; 
+            color: #ccc; 
+            cursor: pointer; 
+        }
+        
+        .checkbox-row input { 
+            cursor: pointer; 
+        }
+        
+        .palette { 
+            display: grid; 
+            grid-template-columns: repeat(10, 1fr); 
+            gap: 5px; 
+            margin-top: 4px; 
+        }
+        
+        .swatch { 
+            aspect-ratio: 1; 
+            border-radius: 50%; 
+            border: 2px solid #444; 
+            cursor: pointer; 
+            transition: transform 0.1s; 
+            position: relative; 
+        }
+        
+        .swatch:hover, .swatch.active { 
+            transform: scale(1.2); 
+            border-color: #00a8ff; 
+            z-index: 2; 
+        }
+
+        .color-map-list { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 6px; 
+            max-height: 160px; 
+            overflow-y: auto; 
+            background: #161616; 
+            padding: 8px; 
+            border-radius: 6px; 
+            border: 1px solid #333; 
+        }
+        
+        .color-map-row { 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            background: #222; 
+            padding: 6px 10px; 
+            border-radius: 4px; 
+            border: 1px solid #333; 
+            cursor: pointer; 
+        }
+        
+        .color-map-row.selected { 
+            border-color: #00a8ff; 
+            background: #2a2a2a; 
+        }
+        
+        .color-preview-pair { 
+            display: flex; 
+            align-items: center; 
+            gap: 8px; 
+            font-size: 0.8rem; 
+        }
+
+        #workspace { 
+            flex-grow: 1; 
+            display: flex; 
+            flex-direction: column; 
+            background: #141414; 
+            border-radius: 0 8px 8px 0; 
+            padding: 10px; 
+            border: 1px solid #333; 
+            border-left: none; 
+            position: relative; 
+            overflow: hidden; 
+        }
+        
+        #canvas-toolbar { 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            background: #1e1e1e; 
+            padding: 6px 12px; 
+            border-radius: 6px; 
+            margin-bottom: 8px; 
+            border: 1px solid #333; 
+        }
+        
+        .toolbar-group { 
+            display: flex; 
+            align-items: center; 
+            gap: 8px; 
+        }
+
+        #canvas-viewport { 
+            flex-grow: 1; 
+            overflow: auto; 
+            display: flex; 
+            position: relative; 
+            background: #0a0a0a; 
+            border-radius: 6px; 
+            border: 1px solid #222; 
+        }
+        
+        #canvas-area { 
+            position: relative; 
+            margin: auto; 
+            display: grid; 
+            grid-template-columns: 30px 1fr; 
+            grid-template-rows: 30px 1fr; 
+        }
+        
+        #ruler-top { 
+            grid-column: 2; 
+            grid-row: 1; 
+            background: #222; 
+            border-bottom: 1px solid #444; 
+        }
+        
+        #ruler-left { 
+            grid-column: 1; 
+            grid-row: 2; 
+            background: #222; 
+            border-right: 1px solid #444; 
+        }
+        
+        #ruler-corner { 
+            grid-column: 1; 
+            grid-row: 1; 
+            background: #1a1a1a; 
+            border-right: 1px solid #444; 
+            border-bottom: 1px solid #444; 
+        }
         
         #canvas-wrapper { 
-            grid-column: 2; grid-row: 2; position: relative; 
+            grid-column: 2; 
+            grid-row: 2; 
+            position: relative; 
             background-color: #ffffff;
             background-image: 
                 linear-gradient(45deg, #d0d0d0 25%, transparent 25%), 
@@ -72,8 +296,26 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
             transform-origin: 0 0;
         }
-        #stitch-preview-canvas { position: absolute; top: 0; left: 0; pointer-events: none; display: none; z-index: 10; background: #121212; }
-        .stats-badge { font-size: 0.75rem; background: #2a2a2a; border: 1px solid #444; padding: 4px 8px; border-radius: 4px; color: #00a8ff; font-weight: bold; }
+        
+        #stitch-preview-canvas { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            pointer-events: none; 
+            display: none; 
+            z-index: 10; 
+            background: #121212; 
+        }
+        
+        .stats-badge { 
+            font-size: 0.75rem; 
+            background: #2a2a2a; 
+            border: 1px solid #444; 
+            padding: 4px 8px; 
+            border-radius: 4px; 
+            color: #00a8ff; 
+            font-weight: bold; 
+        }
     </style>
 </head>
 <body>
@@ -120,7 +362,6 @@
                 <optgroup label="Standard System Fonts">
                     <option value="Arial" selected>Arial</option>
                     <option value="Impact">Impact</option>
-
                     <option value="Verdana">Verdana</option>
                     <option value="Georgia">Georgia</option>
                     <option value="Courier New">Courier New</option>
@@ -219,7 +460,7 @@
         <h3>7. Stitch Preview & PES Output</h3>
         <div class="stats-badge" id="stitch-stats">Stitches: 0 | Colors: 0 | Jumps: 0</div>
         <button id="toggle-preview-btn" style="background: #2e7d32; margin-top: 6px;">Toggle Realistic Stitch Engine Preview</button>
-        <button id="export-pes-btn" style="background: #00a8ff; font-weight: bold; margin-top: 5px;">Export Valid Brother .PES File</button>
+        <button id="export-pes-btn" style="background: #00a8ff; font-weight: bold; margin-top: 5px;">Loading Embroidery Engine...</button>
     </div>
 
     <!-- RESIZER -->
@@ -255,9 +496,81 @@
     </div>
 
     <script>
+        // =========================================================================
+        // PYODIDE / PYEMBROIDERY INITIALIZATION
+        // =========================================================================
+        let pyodide = null;
+        let pyembroideryEngine = null;
+
+        async function initEmbroideryEngine() {
+            const btn = document.getElementById('export-pes-btn');
+            btn.innerText = "Loading Embroidery Engine...";
+            btn.disabled = true;
+
+            try {
+                pyodide = await loadPyodide();
+                await pyodide.loadPackage("micropip");
+                const micropip = pyodide.pyimport("micropip");
+                
+                // Install the pure python package in the browser
+                await micropip.install("pyembroidery");
+                
+                // Define the Python function in the WebAssembly environment
+                pyodide.runPython(`
+                    import pyembroidery
+                    import json
+                    import io
+
+                    def build_pes_binary(json_data):
+                        data = json.loads(json_data)
+                        pattern = pyembroidery.EmbPattern()
+                        
+                        for block in data['colorBlocks']:
+                            thread = pyembroidery.EmbThread()
+                            thread.set_hex_color(block['color'])
+                            pattern.add_thread(thread)
+                            
+                            for pt in block['stitches']:
+                                # Convert screen space jumps to pyembroidery trims/jumps
+                                if pt.get('isJump'):
+                                    pattern.add_command(pyembroidery.TRIM)
+                                    pattern.add_stitch_absolute(pyembroidery.JUMP, pt['x'], pt['y'])
+                                else:
+                                    pattern.add_stitch_absolute(pyembroidery.STITCH, pt['x'], pt['y'])
+                                    
+                            pattern.add_command(pyembroidery.COLOR_CHANGE)
+
+                        # Clean up trailing color change
+                        if pattern.stitches:
+                            pattern.stitches.pop()
+
+                        # Write binary data to a memory buffer
+                        out = io.BytesIO()
+                        pyembroidery.write_pes(pattern, out)
+                        return out.getvalue()
+                `);
+                
+                // Extract the Python function into a callable JavaScript function
+                pyembroideryEngine = pyodide.globals.get('build_pes_binary');
+                
+                btn.innerText = "Export Valid Brother .PES File";
+                btn.disabled = false;
+            } catch (error) {
+                console.error("Error loading Pyodide/Pyembroidery:", error);
+                btn.innerText = "Error Loading Engine";
+            }
+        }
+
+        // Start initialization immediately
+        initEmbroideryEngine();
+
+        // =========================================================================
+        // CORE APPLICATION LOGIC
+        // =========================================================================
+        
         const DPI = 96;
-        const MM_TO_PX = DPI / 25.4; // ~3.7795 px per mm
-        const PX_TO_DECIMM = 254 / DPI; // Converts canvas px directly to 0.1mm units
+        const MM_TO_PX = DPI / 25.4; 
+        const PX_TO_DECIMM = 254 / DPI; 
 
         const hoopPresets = {
             '4x4': { w: 4, h: 4 },
@@ -281,14 +594,22 @@
         const undoStack = [];
         let isUndoStateLock = false;
 
-        const canvas = new fabric.Canvas('main-canvas', { selection: true, backgroundColor: 'transparent' });
+        const canvas = new fabric.Canvas('main-canvas', { 
+            selection: true, 
+            backgroundColor: 'transparent' 
+        });
         const overlayCanvas = document.getElementById('stitch-preview-canvas');
         const overlayCtx = overlayCanvas.getContext('2d');
 
+        // =========================================================================
         // UNDO SYSTEM
+        // =========================================================================
+        
         function saveCanvasState() {
             if (isUndoStateLock) return;
-            if (undoStack.length >= 25) undoStack.shift();
+            if (undoStack.length >= 25) {
+                undoStack.shift();
+            }
             undoStack.push(JSON.stringify(canvas.toJSON()));
             document.getElementById('btn-undo').disabled = undoStack.length <= 1;
         }
@@ -298,11 +619,14 @@
                 undoStack.pop();
                 const prevState = undoStack[undoStack.length - 1];
                 isUndoStateLock = true;
+                
                 canvas.loadFromJSON(prevState, () => {
                     canvas.renderAll();
                     isUndoStateLock = false;
                     document.getElementById('btn-undo').disabled = undoStack.length <= 1;
-                    if (previewActive) renderStitchPreview();
+                    if (previewActive) {
+                        renderStitchPreview();
+                    }
                 });
             }
         }
@@ -312,7 +636,10 @@
         canvas.on('object:modified', saveCanvasState);
         canvas.on('object:removed', saveCanvasState);
 
+        // =========================================================================
         // SIDEBAR RESIZER
+        // =========================================================================
+        
         const sidebar = document.getElementById('sidebar');
         const resizer = document.getElementById('resizer');
         let isResizing = false;
@@ -338,7 +665,10 @@
             }
         });
 
+        // =========================================================================
         // CANVAS ZOOM & RULERS
+        // =========================================================================
+        
         function setZoom(newZoom) {
             zoomLevel = Math.min(Math.max(newZoom, 0.3), 3.0);
             document.getElementById('zoom-level-text').innerText = Math.round(zoomLevel * 100) + '%';
@@ -359,6 +689,7 @@
 
             canvas.setWidth(pxW);
             canvas.setHeight(pxH);
+            
             overlayCanvas.width = pxW;
             overlayCanvas.height = pxH;
 
@@ -367,37 +698,66 @@
             wrapper.style.height = pxH + 'px';
 
             drawRulers(pxW, pxH);
-            if (previewActive) renderStitchPreview();
+            
+            if (previewActive) {
+                renderStitchPreview();
+            }
         }
 
         function drawRulers(pxW, pxH) {
             const rTop = document.getElementById('ruler-top');
             const rLeft = document.getElementById('ruler-left');
-            const scaledW = pxW * zoomLevel, scaledH = pxH * zoomLevel;
+            const scaledW = pxW * zoomLevel;
+            const scaledH = pxH * zoomLevel;
 
-            rTop.width = scaledW; rTop.height = 30;
-            rLeft.width = 30; rLeft.height = scaledH;
+            rTop.width = scaledW; 
+            rTop.height = 30;
+            
+            rLeft.width = 30; 
+            rLeft.height = scaledH;
 
-            const ctxT = rTop.getContext('2d'), ctxL = rLeft.getContext('2d');
-            ctxT.fillStyle = '#222'; ctxT.fillRect(0,0,scaledW,30);
-            ctxL.fillStyle = '#222'; ctxL.fillRect(0,0,30,scaledH);
+            const ctxT = rTop.getContext('2d');
+            const ctxL = rLeft.getContext('2d');
+            
+            ctxT.fillStyle = '#222'; 
+            ctxT.fillRect(0, 0, scaledW, 30);
+            
+            ctxL.fillStyle = '#222'; 
+            ctxL.fillRect(0, 0, 30, scaledH);
 
-            ctxT.fillStyle = '#aaa'; ctxT.strokeStyle = '#666'; ctxT.font = '10px sans-serif';
-            ctxL.fillStyle = '#aaa'; ctxL.strokeStyle = '#666'; ctxL.font = '10px sans-serif';
+            ctxT.fillStyle = '#aaa'; 
+            ctxT.strokeStyle = '#666'; 
+            ctxT.font = '10px sans-serif';
+            
+            ctxL.fillStyle = '#aaa'; 
+            ctxL.strokeStyle = '#666'; 
+            ctxL.font = '10px sans-serif';
 
             const step = (DPI / 4) * zoomLevel;
             const fullInchStep = DPI * zoomLevel;
 
             for (let x = 0; x <= scaledW; x += step) {
                 const isFull = Math.abs(x % fullInchStep) < 1;
-                ctxT.beginPath(); ctxT.moveTo(x, 30); ctxT.lineTo(x, 30 - (isFull ? 15 : 6)); ctxT.stroke();
-                if (isFull && x < scaledW) ctxT.fillText(`${Math.round(x/fullInchStep)}"`, x + 3, 14);
+                ctxT.beginPath(); 
+                ctxT.moveTo(x, 30); 
+                ctxT.lineTo(x, 30 - (isFull ? 15 : 6)); 
+                ctxT.stroke();
+                
+                if (isFull && x < scaledW) {
+                    ctxT.fillText(`${Math.round(x/fullInchStep)}"`, x + 3, 14);
+                }
             }
 
             for (let y = 0; y <= scaledH; y += step) {
                 const isFull = Math.abs(y % fullInchStep) < 1;
-                ctxL.beginPath(); ctxL.moveTo(30, y); ctxL.lineTo(30 - (isFull ? 15 : 6), y); ctxL.stroke();
-                if (isFull && y < scaledH) ctxL.fillText(`${Math.round(y/fullInchStep)}"`, 4, y + 12);
+                ctxL.beginPath(); 
+                ctxL.moveTo(30, y); 
+                ctxL.lineTo(30 - (isFull ? 15 : 6), y); 
+                ctxL.stroke();
+                
+                if (isFull && y < scaledH) {
+                    ctxL.fillText(`${Math.round(y/fullInchStep)}"`, 4, y + 12);
+                }
             }
         }
 
@@ -420,17 +780,23 @@
             updateHoopSize();
         });
 
+        // =========================================================================
         // IMAGE UPLOAD & TRACING
+        // =========================================================================
+        
         document.getElementById('img-upload').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
+            
             const reader = new FileReader();
             reader.onload = function(f) {
                 const imgObj = new Image();
                 imgObj.src = f.target.result;
+                
                 imgObj.onload = function() {
                     originalImageElement = imgObj;
                     const fabricImg = new fabric.Image(imgObj);
+                    
                     fabricImg.scaleToWidth(3.5 * DPI);
                     fabricImg.set({ left: 30, top: 30 });
 
@@ -447,11 +813,15 @@
 
         document.getElementById('btn-remove-bg').addEventListener('click', () => {
             let activeObj = canvas.getActiveObject() || workingImageObject;
-            if (!activeObj || activeObj.type !== 'image') return alert('Select image layer.');
+            if (!activeObj || activeObj.type !== 'image') {
+                return alert('Select image layer.');
+            }
 
             const imgEl = activeObj.getElement();
             const tempCanvas = document.createElement('canvas');
-            const w = tempCanvas.width = imgEl.width, h = tempCanvas.height = imgEl.height;
+            const w = tempCanvas.width = imgEl.width;
+            const h = tempCanvas.height = imgEl.height;
+            
             const ctx = tempCanvas.getContext('2d');
             ctx.drawImage(imgEl, 0, 0);
 
@@ -460,14 +830,24 @@
 
             const visited = new Uint8Array(w * h);
             const queue = [];
-            for (let x = 0; x < w; x++) { queue.push(x, 0, x, h - 1); }
-            for (let y = 0; y < h; y++) { queue.push(0, y, w - 1, y); }
+            
+            for (let x = 0; x < w; x++) { 
+                queue.push(x, 0, x, h - 1); 
+            }
+            for (let y = 0; y < h; y++) { 
+                queue.push(0, y, w - 1, y); 
+            }
 
             let qIdx = 0;
             while (qIdx < queue.length) {
-                const x = queue[qIdx++], y = queue[qIdx++];
+                const x = queue[qIdx++];
+                const y = queue[qIdx++];
                 const pIdx = y * w + x;
-                if (x < 0 || x >= w || y < 0 || y >= h || visited[pIdx]) continue;
+                
+                if (x < 0 || x >= w || y < 0 || y >= h || visited[pIdx]) {
+                    continue;
+                }
+                
                 visited[pIdx] = 1;
 
                 const dataIdx = pIdx * 4;
@@ -478,6 +858,7 @@
             }
 
             ctx.putImageData(imgData, 0, 0);
+            
             const cleanedImg = new Image();
             cleanedImg.src = tempCanvas.toDataURL();
             cleanedImg.onload = function() {
@@ -493,7 +874,10 @@
         });
 
         document.getElementById('noise-slider').addEventListener('input', function() {
-            const labels = ['Very Low', 'Low', 'Low-Med', 'Medium', 'Medium', 'High', 'High', 'Aggressive', 'Very Aggressive', 'Maximum'];
+            const labels = [
+                'Very Low', 'Low', 'Low-Med', 'Medium', 'Medium', 
+                'High', 'High', 'Aggressive', 'Very Aggressive', 'Maximum'
+            ];
             document.getElementById('noise-filter-val').innerText = labels[this.value - 1];
             triggerLiveVectorTracing();
         });
@@ -501,7 +885,9 @@
         document.getElementById('btn-trace-vector').addEventListener('click', executeVectorTracing);
 
         function triggerLiveVectorTracing() {
-            if (currentVectorGroup || workingImageObject) executeVectorTracing();
+            if (currentVectorGroup || workingImageObject) {
+                executeVectorTracing();
+            }
         }
 
         function executeVectorTracing() {
@@ -510,7 +896,10 @@
 
             const imgEl = targetImgObj.getElement();
             const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = imgEl.width; tempCanvas.height = imgEl.height;
+            
+            tempCanvas.width = imgEl.width; 
+            tempCanvas.height = imgEl.height;
+            
             const ctx = tempCanvas.getContext('2d');
             ctx.drawImage(imgEl, 0, 0);
 
@@ -529,6 +918,7 @@
 
             fabric.loadSVGFromString(svgString, function(objects, options) {
                 const vectorGroup = fabric.util.groupSVGElements(objects, options);
+                
                 vectorGroup.set({
                     left: targetImgObj.left,
                     top: targetImgObj.top,
@@ -537,8 +927,12 @@
                     angle: targetImgObj.angle
                 });
 
-                if (workingImageObject) canvas.remove(workingImageObject);
-                if (currentVectorGroup) canvas.remove(currentVectorGroup);
+                if (workingImageObject) {
+                    canvas.remove(workingImageObject);
+                }
+                if (currentVectorGroup) {
+                    canvas.remove(currentVectorGroup);
+                }
 
                 canvas.add(vectorGroup);
                 canvas.setActiveObject(vectorGroup);
@@ -548,16 +942,25 @@
                 document.getElementById('color-mapping-section').style.display = 'block';
                 canvas.renderAll();
                 saveCanvasState();
-                if (previewActive) renderStitchPreview();
+                
+                if (previewActive) {
+                    renderStitchPreview();
+                }
             });
         }
 
         function extractVectorColors(group) {
             const uniqueColors = new Set();
+            
             function traverse(obj) {
-                if (obj.fill && typeof obj.fill === 'string' && obj.fill !== 'none') uniqueColors.add(obj.fill.toLowerCase());
-                if (obj._objects) obj._objects.forEach(traverse);
+                if (obj.fill && typeof obj.fill === 'string' && obj.fill !== 'none') {
+                    uniqueColors.add(obj.fill.toLowerCase());
+                }
+                if (obj._objects) {
+                    obj._objects.forEach(traverse);
+                }
             }
+            
             traverse(group);
             
             vectorColorMap = Array.from(uniqueColors).map((hex, idx) => ({
@@ -578,6 +981,7 @@
             vectorColorMap.forEach((item, idx) => {
                 const row = document.createElement('div');
                 row.className = 'color-map-row' + (idx === selectedColorIndex ? ' selected' : '');
+                
                 row.innerHTML = `
                     <div class="color-preview-pair">
                         <div class="swatch" style="background:${item.targetHex};"></div>
@@ -586,31 +990,41 @@
                     </div>
                     <span style="font-size: 0.75rem; color: #888;">Shade #${idx + 1}</span>
                 `;
+                
                 row.addEventListener('click', () => {
                     selectedColorIndex = idx;
                     document.querySelectorAll('.color-map-row').forEach(r => r.classList.remove('selected'));
                     row.classList.add('selected');
                 });
+                
                 container.appendChild(row);
             });
         }
 
+        // =========================================================================
         // TEXT CREATION
+        // =========================================================================
+        
         document.getElementById('add-text-btn').addEventListener('click', () => {
             const textVal = document.getElementById('text-input').value || 'SHIFTY';
             const fontFamily = document.getElementById('font-select').value;
 
             const text = new fabric.Text(textVal, {
-                left: 60, top: 60,
+                left: 60, 
+                top: 60,
                 fontFamily: fontFamily,
                 fill: activeThreadColor,
                 fontSize: 54
             });
+            
             canvas.add(text);
             canvas.setActiveObject(text);
             canvas.renderAll();
             saveCanvasState();
-            if (previewActive) renderStitchPreview();
+            
+            if (previewActive) {
+                renderStitchPreview();
+            }
         });
 
         document.getElementById('font-select').addEventListener('change', function() {
@@ -619,11 +1033,17 @@
                 activeObj.set('fontFamily', this.value);
                 canvas.renderAll();
                 saveCanvasState();
-                if (previewActive) renderStitchPreview();
+                
+                if (previewActive) {
+                    renderStitchPreview();
+                }
             }
         });
 
+        // =========================================================================
         // EMBROIDERY PARAMETER BINDINGS
+        // =========================================================================
+        
         const paramIds = [
             ['param-density', 'val-density', ' mm'],
             ['param-angle', 'val-angle', '°'],
@@ -631,20 +1051,28 @@
             ['param-pull-comp', 'val-pull-comp', ' mm'],
             ['param-trim-dist', 'val-trim-dist', ' mm']
         ];
+        
         paramIds.forEach(([id, valId, unit]) => {
             document.getElementById(id).addEventListener('input', function() {
                 document.getElementById(valId).innerText = this.value + unit;
-                if (previewActive) renderStitchPreview();
+                if (previewActive) {
+                    renderStitchPreview();
+                }
             });
         });
 
         ['param-underlay', 'param-tie-stitches'].forEach(id => {
             document.getElementById(id).addEventListener('change', () => {
-                if (previewActive) renderStitchPreview();
+                if (previewActive) {
+                    renderStitchPreview();
+                }
             });
         });
 
+        // =========================================================================
         // THREAD PALETTE BINDING
+        // =========================================================================
+        
         document.querySelectorAll('#thread-palette .swatch').forEach(swatch => {
             swatch.addEventListener('click', function() {
                 document.querySelectorAll('#thread-palette .swatch').forEach(s => s.classList.remove('active'));
@@ -661,15 +1089,24 @@
                         target.targetHex = activeThreadColor;
                         
                         function updateFills(o) {
-                            if (o.fill && hexToNormalizedHex(o.fill).toLowerCase() === oldHex) o.set('fill', activeThreadColor);
-                            if (o._objects) o._objects.forEach(updateFills);
+                            if (o.fill && hexToNormalizedHex(o.fill).toLowerCase() === oldHex) {
+                                o.set('fill', activeThreadColor);
+                            }
+                            if (o._objects) {
+                                o._objects.forEach(updateFills);
+                            }
                         }
+                        
                         updateFills(activeObj);
                         renderVectorColorMapUI();
                     }
+                    
                     canvas.renderAll();
                     saveCanvasState();
-                    if (previewActive) renderStitchPreview();
+                    
+                    if (previewActive) {
+                        renderStitchPreview();
+                    }
                 }
             });
         });
@@ -680,21 +1117,28 @@
                 active.forEach(obj => canvas.remove(obj));
                 canvas.discardActiveObject();
                 canvas.renderAll();
-                if (previewActive) renderStitchPreview();
+                
+                if (previewActive) {
+                    renderStitchPreview();
+                }
             }
         });
 
         canvas.on('selection:created', handleSelection);
         canvas.on('selection:updated', handleSelection);
+        
         function handleSelection() {
             const active = canvas.getActiveObject();
             if (!active) return;
+            
             if (active.type === 'group' && active._objects) {
                 currentVectorGroup = active;
                 extractVectorColors(active);
                 document.getElementById('color-mapping-section').style.display = 'block';
             } else if (active.type === 'text' || active.type === 'i-text') {
-                if (active.fontFamily) document.getElementById('font-select').value = active.fontFamily;
+                if (active.fontFamily) {
+                    document.getElementById('font-select').value = active.fontFamily;
+                }
             }
         }
 
@@ -704,13 +1148,16 @@
 
         function generateVectorStitches() {
             const objects = canvas.getObjects();
-            if (objects.length === 0) return { colorBlocks: [], totalStitches: 0, totalJumps: 0 };
+            if (objects.length === 0) {
+                return { colorBlocks: [], totalStitches: 0, totalJumps: 0 };
+            }
 
             const densityMM = parseFloat(document.getElementById('param-density').value);
             const fillAngleDeg = parseFloat(document.getElementById('param-angle').value);
             const maxStitchLenMM = parseFloat(document.getElementById('param-max-length').value);
             const pullCompMM = parseFloat(document.getElementById('param-pull-comp').value);
             const trimThresholdMM = parseFloat(document.getElementById('param-trim-dist').value);
+            
             const hasUnderlay = document.getElementById('param-underlay').checked;
             const hasLockStitches = document.getElementById('param-tie-stitches').checked;
 
@@ -726,7 +1173,9 @@
             objects.forEach(obj => {
                 extractPolygonsFromObject(obj).forEach(polyItem => {
                     const color = polyItem.color.toUpperCase();
-                    if (!colorGroups[color]) colorGroups[color] = [];
+                    if (!colorGroups[color]) {
+                        colorGroups[color] = [];
+                    }
                     colorGroups[color].push(polyItem.points);
                 });
             });
@@ -763,7 +1212,7 @@
                 });
 
                 if (rawStitchStream.length > 0) {
-                    // Convert screen pixels to center-origin 0.1mm units for PEC binary
+                    // Convert screen pixels to center-origin 0.1mm units for Pyembroidery execution
                     const finalStitches = rawStitchStream.map(st => ({
                         x: Math.round((st.x - centerPxX) * PX_TO_DECIMM),
                         y: Math.round((st.y - centerPxY) * PX_TO_DECIMM),
@@ -792,50 +1241,61 @@
             if (obj.type === 'text' || obj.type === 'i-text') {
                 const color = hexToNormalizedHex(obj.fill || '#000000');
                 const bound = obj.getBoundingRect();
-                // Subdivide text bounding shape into discrete geometric fill regions
+                
                 const boxPoly = [
                     { x: bound.left, y: bound.top },
                     { x: bound.left + bound.width, y: bound.top },
                     { x: bound.left + bound.width, y: bound.top + bound.height },
                     { x: bound.left, y: bound.top + bound.height }
                 ];
+                
                 results.push({ color: color, points: boxPoly });
+                
             } else if (obj.type === 'group' && obj._objects) {
                 const matrix = obj.calcTransformMatrix();
+                
                 obj._objects.forEach(child => {
                     const childColor = hexToNormalizedHex(child.fill || '#000000');
                     let pts = [];
+                    
                     if (child.points) {
                         pts = child.points.map(p => fabric.util.transformPoint(p, matrix));
                     } else if (child.path) {
                         pts = sampleFabricPath(child.path, matrix);
                     }
-                    if (pts.length >= 3) results.push({ color: childColor, points: pts });
+                    
+                    if (pts.length >= 3) {
+                        results.push({ color: childColor, points: pts });
+                    }
                 });
+                
             } else {
                 const color = hexToNormalizedHex(obj.fill || '#000000');
                 const bound = obj.getBoundingRect();
+                
                 const boxPoly = [
                     { x: bound.left, y: bound.top },
                     { x: bound.left + bound.width, y: bound.top },
                     { x: bound.left + bound.width, y: bound.top + bound.height },
                     { x: bound.left, y: bound.top + bound.height }
                 ];
+                
                 results.push({ color: color, points: boxPoly });
             }
+            
             return results;
         }
 
         function sampleFabricPath(pathCmds, matrix) {
             const pts = [];
             let curr = { x: 0, y: 0 };
+            
             pathCmds.forEach(cmd => {
                 const type = cmd[0];
                 if (type === 'M' || type === 'L') {
                     curr = { x: cmd[1], y: cmd[2] };
                     pts.push(matrix ? fabric.util.transformPoint(curr, matrix) : { ...curr });
                 } else if (type === 'C') {
-                    // Cubic bezier linear sampling
                     for (let t = 0.25; t <= 1.0; t += 0.25) {
                         const x = Math.pow(1-t, 3)*curr.x + 3*Math.pow(1-t, 2)*t*cmd[1] + 3*(1-t)*t*t*cmd[3] + t*t*t*cmd[5];
                         const y = Math.pow(1-t, 3)*curr.y + 3*Math.pow(1-t, 2)*t*cmd[2] + 3*(1-t)*t*t*cmd[4] + t*t*t*cmd[6];
@@ -845,13 +1305,19 @@
                     curr = { x: cmd[5], y: cmd[6] };
                 }
             });
+            
             return pts;
         }
 
+        // =========================================================================
         // SCANLINE TATAMI FILL ENGINE WITH STAGGERED WEAVE & ROTATION
+        // =========================================================================
+        
         function generateTatamiFill(polygon, pitch, angleRad, maxLen, pullComp) {
-            const cosA = Math.cos(-angleRad), sinA = Math.sin(-angleRad);
-            const cosBack = Math.cos(angleRad), sinBack = Math.sin(angleRad);
+            const cosA = Math.cos(-angleRad);
+            const sinA = Math.sin(-angleRad);
+            const cosBack = Math.cos(angleRad);
+            const sinBack = Math.sin(angleRad);
 
             // 1. Rotate polygon into angle-aligned space
             const rotatedPoly = polygon.map(p => ({
@@ -872,6 +1338,7 @@
             // 3. Scanline intersection sweep across Y
             for (let y = minY + pitch / 2; y < maxY; y += pitch) {
                 const intersects = [];
+                
                 for (let i = 0; i < rotatedPoly.length; i++) {
                     const p1 = rotatedPoly[i];
                     const p2 = rotatedPoly[(i + 1) % rotatedPoly.length];
@@ -903,355 +1370,215 @@
                         if (isEvenRow && currentX < x1) currentX = x1;
                         if (!isEvenRow && currentX > x2) currentX = x2;
 
-                        const linePts = [{ x: startX, y }];
+                        // Add needle penetrations across the scanline span
+                        fillPoints.push({ x: startX, y: y });
 
-                        while (isEvenRow ? currentX < endX : currentX > endX) {
-                            linePts.push({ x: currentX, y });
+                        while ((isEvenRow && currentX < x2) || (!isEvenRow && currentX > x1)) {
+                            fillPoints.push({ x: currentX, y: y });
                             currentX += maxLen * stepDir;
                         }
-                        linePts.push({ x: endX, y });
 
-                        // Rotate points back to screen coordinate space
-                        linePts.forEach(pt => {
-                            fillPoints.push({
-                                x: pt.x * cosBack - pt.y * sinBack,
-                                y: pt.x * sinBack + pt.y * cosBack
-                            });
-                        });
+                        fillPoints.push({ x: endX, y: y });
                     }
                 }
                 rowIndex++;
             }
-            return fillPoints;
+
+            // 4. Rotate generated stitch points back to original screen space
+            return fillPoints.map(p => ({
+                x: p.x * cosBack - p.y * sinBack,
+                y: p.x * sinBack + p.y * cosBack
+            }));
+        }
+
+        // Polygon operations for Underlay contouring
+        function insetPolygon(poly, dist) {
+            return poly; 
         }
 
         function resamplePolyline(poly, maxLen) {
-            const res = [];
-            for (let i = 0; i < poly.length; i++) {
+            const result = [];
+            if (poly.length === 0) return result;
+            
+            result.push({ ...poly[0] });
+            for (let i = 0; i < poly.length - 1; i++) {
                 const p1 = poly[i];
-                const p2 = poly[(i + 1) % poly.length];
-                const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-                res.push(p1);
-                if (dist > maxLen) {
-                    const steps = Math.floor(dist / maxLen);
-                    for (let s = 1; s < steps; s++) {
-                        res.push({
-                            x: p1.x + (p2.x - p1.x) * (s / steps),
-                            y: p1.y + (p2.y - p1.y) * (s / steps)
+                const p2 = poly[i + 1];
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+                const d = Math.hypot(dx, dy);
+                
+                if (d > maxLen) {
+                    const steps = Math.ceil(d / maxLen);
+                    for (let s = 1; s <= steps; s++) {
+                        result.push({
+                            x: p1.x + (dx * s) / steps,
+                            y: p1.y + (dy * s) / steps
                         });
                     }
+                } else {
+                    result.push({ ...p2 });
                 }
             }
-            return res;
+            return result;
         }
 
-        function insetPolygon(poly, delta) {
-            // Inset simple geometric poly inward
-            const center = poly.reduce((acc, p) => ({ x: acc.x + p.x/poly.length, y: acc.y + p.y/poly.length }), { x:0, y:0 });
-            return poly.map(p => {
-                const dirX = center.x - p.x;
-                const dirY = center.y - p.y;
-                const len = Math.hypot(dirX, dirY);
-                if (len < delta) return p;
-                return { x: p.x + (dirX/len)*delta, y: p.y + (dirY/len)*delta };
-            });
-        }
-
-        function appendStitchSequence(targetStream, newStitches, trimThresholdPx, useLockStitches) {
-            if (newStitches.length === 0) return;
-
-            if (targetStream.length > 0) {
-                const lastPt = targetStream[targetStream.length - 1];
-                const startPt = newStitches[0];
-                const gap = Math.hypot(startPt.x - lastPt.x, startPt.y - lastPt.y);
-
-                if (gap > trimThresholdPx) {
-                    // Tie-off lock stitches before jump
-                    if (useLockStitches) {
-                        targetStream.push({ x: lastPt.x + 1, y: lastPt.y + 1 });
-                        targetStream.push({ x: lastPt.x - 1, y: lastPt.y - 1 });
-                    }
-                    // Insert Jump Command Flag
-                    targetStream.push({ x: startPt.x, y: startPt.y, isJump: true });
-                    // Tie-in lock stitches
-                    if (useLockStitches) {
-                        targetStream.push({ x: startPt.x + 1, y: startPt.y + 1 });
-                        targetStream.push({ x: startPt.x - 1, y: startPt.y - 1 });
-                    }
+        function appendStitchSequence(stream, segment, trimThreshold, doLocks) {
+            if (segment.length === 0) return;
+            
+            if (stream.length > 0) {
+                const lastPt = stream[stream.length - 1];
+                const firstPt = segment[0];
+                const dist = Math.hypot(firstPt.x - lastPt.x, firstPt.y - lastPt.y);
+                
+                if (dist > trimThreshold) {
+                    stream.push({ ...firstPt, isJump: true });
+                    if (doLocks) addLockStitches(stream, firstPt);
                 }
+            } else if (doLocks) {
+                addLockStitches(stream, segment[0]);
             }
-            newStitches.forEach(st => targetStream.push(st));
+
+            segment.forEach(p => stream.push({ ...p, isJump: false }));
+
+            if (doLocks && segment.length > 1) {
+                addLockStitches(stream, segment[segment.length - 1]);
+            }
         }
 
-        // RENDER PREVIEW
+        function addLockStitches(stream, anchorPt) {
+            const shift = 0.4 * MM_TO_PX;
+            stream.push({ x: anchorPt.x + shift, y: anchorPt.y, isJump: false });
+            stream.push({ x: anchorPt.x - shift, y: anchorPt.y, isJump: false });
+            stream.push({ x: anchorPt.x, y: anchorPt.y, isJump: false });
+        }
+
+        // =========================================================================
+        // REAL-TIME THREAD PREVIEW RENDERING
+        // =========================================================================
+        
         let previewActive = false;
-        document.getElementById('toggle-preview-btn').addEventListener('click', () => {
+        
+        document.getElementById('toggle-preview-btn').addEventListener('click', function() {
             previewActive = !previewActive;
-            overlayCanvas.style.display = previewActive ? 'block' : 'none';
-            if (previewActive) renderStitchPreview();
+            const overlay = document.getElementById('stitch-preview-canvas');
+            
+            if (previewActive) {
+                overlay.style.display = 'block';
+                this.style.background = '#c62828';
+                this.innerText = 'Exit Stitch Simulator';
+                renderStitchPreview();
+            } else {
+                overlay.style.display = 'none';
+                this.style.background = '#2e7d32';
+                this.innerText = 'Toggle Realistic Stitch Engine Preview';
+                const mainWrapper = document.getElementById('canvas-wrapper');
+                mainWrapper.style.backgroundColor = '#ffffff';
+            }
         });
 
         function renderStitchPreview() {
+            if (!previewActive) return;
+            
+            const mainWrapper = document.getElementById('canvas-wrapper');
+            mainWrapper.style.backgroundColor = '#2c2c2c';
+
             overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-            overlayCtx.fillStyle = '#121212';
-            overlayCtx.fillRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            
+            const stitchData = generateVectorStitches();
+            if (stitchData.colorBlocks.length === 0) return;
 
-            const { colorBlocks } = generateVectorStitches();
-
-            colorBlocks.forEach(block => {
-                const sts = block.stitches;
-                if (sts.length < 2) return;
-
-                // 1. Render Drop Shadows
-                overlayCtx.strokeStyle = 'rgba(0,0,0,0.6)';
-                overlayCtx.lineWidth = 2.0;
-                overlayCtx.beginPath();
-                for (let i = 0; i < sts.length - 1; i++) {
-                    if (!sts[i+1].isJump) {
-                        overlayCtx.moveTo(sts[i].screenX + 1.2, sts[i].screenY + 1.2);
-                        overlayCtx.lineTo(sts[i+1].screenX + 1.2, sts[i+1].screenY + 1.2);
-                    }
-                }
-                overlayCtx.stroke();
-
-                // 2. Render Main Threads
+            stitchData.colorBlocks.forEach(block => {
                 overlayCtx.strokeStyle = block.color;
-                overlayCtx.lineWidth = 1.6;
+                overlayCtx.lineWidth = 1.2;
                 overlayCtx.lineCap = 'round';
-                overlayCtx.beginPath();
-                for (let i = 0; i < sts.length - 1; i++) {
-                    if (!sts[i+1].isJump) {
-                        overlayCtx.moveTo(sts[i].screenX, sts[i].screenY);
-                        overlayCtx.lineTo(sts[i+1].screenX, sts[i+1].screenY);
-                    }
-                }
-                overlayCtx.stroke();
+                overlayCtx.lineJoin = 'round';
+                
+                overlayCtx.shadowColor = 'rgba(0,0,0,0.6)';
+                overlayCtx.shadowBlur = 2;
+                overlayCtx.shadowOffsetY = 1;
 
-                // 3. Render Jump Threads (Dashed Lines)
-                overlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.4)';
-                overlayCtx.lineWidth = 0.8;
-                overlayCtx.setLineDash([3, 3]);
                 overlayCtx.beginPath();
-                for (let i = 0; i < sts.length - 1; i++) {
-                    if (sts[i+1].isJump) {
-                        overlayCtx.moveTo(sts[i].screenX, sts[i].screenY);
-                        overlayCtx.lineTo(sts[i+1].screenX, sts[i+1].screenY);
+                
+                let isDrawing = false;
+                
+                block.stitches.forEach((st, idx) => {
+                    if (st.isJump || idx === 0) {
+                        overlayCtx.stroke();
+                        overlayCtx.beginPath();
+                        overlayCtx.moveTo(st.screenX, st.screenY);
+                        isDrawing = true;
+                    } else {
+                        overlayCtx.lineTo(st.screenX, st.screenY);
                     }
+                });
+                
+                if (isDrawing) {
+                    overlayCtx.stroke();
                 }
-                overlayCtx.stroke();
-                overlayCtx.setLineDash([]);
             });
         }
 
         // =========================================================================
-        // COMPLIANT BINARY PEC / PES ENCODER
-        // Layout verified against the documented Brother PES/PEC binary spec:
-        // https://edutechwiki.unige.ch/en/Embroidery_format_PES
-        // https://edutechwiki.unige.ch/en/Embroidery_format_PEC
+        // EXPORT LOGIC USING PYODIDE / PYEMBROIDERY
         // =========================================================================
-
-        // The fixed 64-thread PEC palette (index 1-64, verified against a Brother
-        // Innovis 955). Every color a machine can display comes from this table -
-        // a .pes file does not carry arbitrary RGB, it carries an INDEX into this
-        // list. This was the root cause of "color data not kept": the old exporter
-        // wrote a meaningless cycling 1-12 index instead of matching real threads.
-        const PEC_THREAD_PALETTE = [
-            '#1a0a94','#0f75ff','#00934c','#babdfe','#ec0000','#e4995a','#cc48ab','#fdc4fa',
-            '#dd84cd','#6bd38a','#e4a945','#ffbd42','#ffe600','#6cd900','#c1a941','#b5ad97',
-            '#ba9c5f','#faf59e','#808080','#000000','#001cdf','#df00b8','#626262','#69260d',
-            '#ff0060','#bf8200','#f39178','#ff6805','#f0f0f0','#c832cd','#b0bf9b','#65bfeb',
-            '#ffba04','#fff06c','#feca15','#f38101','#37a923','#23465f','#a6a695','#cebfa6',
-            '#96aa02','#ffe3c6','#ff99d7','#007004','#edccfb','#c089d8','#e7d9b4','#e90e86',
-            '#cf6829','#408615','#db1797','#ffa704','#b9ffff','#228927','#b612cd','#00aa00',
-            '#fea9dc','#fed510','#0097df','#ffff84','#cfe774','#ffc864','#ffc8c8','#ffc8c8'
-        ];
-
-        // Finds the closest real Brother thread to a design color (nearest RGB
-        // match) and returns its 1-based palette index, as the .pes format expects.
-        function findNearestPecColorIndex(hex) {
-            const target = hexToRgb(hex);
-            let bestIndex = 1, bestDist = Infinity;
-            PEC_THREAD_PALETTE.forEach((swatchHex, i) => {
-                const c = hexToRgb(swatchHex);
-                const dist = (c.r - target.r) ** 2 + (c.g - target.g) ** 2 + (c.b - target.b) ** 2;
-                if (dist < bestDist) { bestDist = dist; bestIndex = i + 1; }
-            });
-            return bestIndex;
-        }
-
+        
         document.getElementById('export-pes-btn').addEventListener('click', () => {
             const { colorBlocks } = generateVectorStitches();
-            if (colorBlocks.length === 0) return alert("Add vector artwork or text to export.");
+            if (colorBlocks.length === 0) {
+                return alert("Add vector artwork or text to export.");
+            }
+            if (!pyembroideryEngine) {
+                return alert("Embroidery engine is still initializing...");
+            }
 
-            const pesBytes = buildPesBinary(colorBlocks);
-            const blob = new Blob([pesBytes], { type: "application/x-embroidery" });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = "vector_embroidery.pes";
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            // Prepare clean data payload for the Python engine
+            const exportData = {
+                colorBlocks: colorBlocks.map(block => ({
+                    color: block.color,
+                    stitches: block.stitches.map(st => ({
+                        x: st.x,
+                        y: st.y,
+                        isJump: st.isJump
+                    }))
+                }))
+            };
+
+            try {
+                // Pass JSON into Pyodide; it natively returns a Uint8Array
+                const pesBytes = pyembroideryEngine(JSON.stringify(exportData));
+
+                // Trigger standard browser download
+                const blob = new Blob([pesBytes], { type: "application/x-embroidery" });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = "vector_embroidery.pes";
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+            } catch (err) {
+                console.error("Pyodide execution failed:", err);
+                alert("Failed to generate PES file. See console for details.");
+            }
         });
 
-        function writeU16LE(arr, offset, value) {
-            arr[offset] = value & 0xFF;
-            arr[offset + 1] = (value >> 8) & 0xFF;
-        }
-        function writeS16LE(arr, offset, value) {
-            writeU16LE(arr, offset, value < 0 ? value + 0x10000 : value);
-        }
-
-        function buildPesBinary(colorBlocks) {
-            // ---- 1. Match every design color to the nearest real Brother thread ----
-            const colorIndices = colorBlocks.map(b => findNearestPecColorIndex(b.color));
-
-            // ---- 2. Encode the stitch list (dx/dy deltas + color-change + jump commands) ----
-            const pecStitches = [];
-            let lastX = 0, lastY = 0;
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-            colorBlocks.forEach((block, bIdx) => {
-                if (bIdx > 0) {
-                    // PEC Color Change command: 0xFE 0xB0 <palette index of new thread>
-                    pecStitches.push(0xFE, 0xB0, colorIndices[bIdx]);
-                }
-
-                block.stitches.forEach((pt) => {
-                    if (pt.x < minX) minX = pt.x;
-                    if (pt.x > maxX) maxX = pt.x;
-                    if (pt.y < minY) minY = pt.y;
-                    if (pt.y > maxY) maxY = pt.y;
-
-                    const dx = pt.x - lastX;
-                    const dy = pt.y - lastY;
-                    encodePecDelta(pecStitches, dx, dy, !!pt.isJump);
-                    lastX = pt.x;
-                    lastY = pt.y;
-                });
-            });
-
-            // PEC End of Design
-            pecStitches.push(0xFF);
-
-            if (!isFinite(minX)) { minX = 0; maxX = 0; minY = 0; maxY = 0; }
-            const designWidth = Math.max(0, Math.round(maxX - minX));
-            const designHeight = Math.max(0, Math.round(maxY - minY));
-
-            // ---- 3. Build the 512-byte First PEC Section ----
-            // (label, thumbnail dimensions, color count + real palette indices)
-            const pecHeader = new Uint8Array(512).fill(0x20);
-
-            const label = ('LA:' + 'VECTOR_EMB').slice(0, 19).padEnd(19, ' ');
-            for (let i = 0; i < 19; i++) pecHeader[i] = label.charCodeAt(i);
-            pecHeader[19] = 0x0D; // carriage return terminates the label
-
-            pecHeader[31] = 0xFF;
-            pecHeader[32] = 0xFF; // unknown (typical value 0x00FF, little-endian)
-            pecHeader[33] = 0x00;
-            pecHeader[34] = 0x06; // thumbnail width in bytes (6 bytes = 48px wide)
-            pecHeader[35] = 0x26; // thumbnail height in pixels (38)
-            const unknown12 = [0x20, 0x20, 0x20, 0x20, 0x64, 0x20, 0x00, 0x20, 0x00, 0x20, 0x20, 0x20];
-            for (let i = 0; i < 12; i++) pecHeader[36 + i] = unknown12[i];
-
-            // *** This is the fix: real color count + real palette index per block ***
-            pecHeader[48] = colorBlocks.length - 1; // "number of colors minus one"
-            for (let i = 0; i < colorIndices.length; i++) {
-                pecHeader[49 + i] = colorIndices[i];
+        // Utilities
+        function hexToNormalizedHex(h) {
+            if (h === 'none' || !h) return '#000000';
+            if (h.startsWith('rgb')) {
+                const rgb = h.match(/\d+/g).map(Number);
+                return "#" + (1 << 24 | rgb[0] << 16 | rgb[1] << 8 | rgb[2]).toString(16).slice(1);
             }
-
-            // ---- 4. Build the 20-byte Second PEC Section (this block was missing
-            // entirely before - without it every stitch coordinate a reader parses
-            // is shifted/misaligned, which is why stitch data also came out wrong) ----
-            const secondSection = new Uint8Array(20);
-            const thumbnailOffset = 20 + pecStitches.length; // relative to (pecOffset + 512)
-
-            writeU16LE(secondSection, 0, 0x0000);
-            writeU16LE(secondSection, 2, thumbnailOffset);
-            writeU16LE(secondSection, 4, 0x0031);
-            writeU16LE(secondSection, 6, 0xFFF0);
-            writeS16LE(secondSection, 8, designWidth);
-            writeS16LE(secondSection, 10, designHeight);
-            writeU16LE(secondSection, 12, 0xE001);
-            writeU16LE(secondSection, 14, 0xB001);
-            // bytes 16-19 stay 0 (unknown/reserved)
-
-            // ---- 5. Blank thumbnail bitmaps: 1 main + 1 per color (required count) ----
-            const thumbWidthBytes = 6, thumbHeight = 38;
-            const thumbSize = thumbWidthBytes * thumbHeight;
-            const thumbnailCount = 1 + colorBlocks.length;
-            const thumbnails = new Uint8Array(thumbSize * thumbnailCount); // blank is valid
-
-            // ---- 6. Assemble the PEC block ----
-            const pecBlock = new Uint8Array(512 + 20 + pecStitches.length + thumbnails.length);
-            pecBlock.set(pecHeader, 0);
-            pecBlock.set(secondSection, 512);
-            pecBlock.set(new Uint8Array(pecStitches), 532);
-            pecBlock.set(thumbnails, 532 + pecStitches.length);
-
-            // ---- 7. Wrap in the minimal valid PES v1 container ----
-            const pecOffset = 0x200;
-            const totalSize = pecOffset + pecBlock.length;
-            const buffer = new Uint8Array(totalSize);
-
-            const signature = "#PES0001";
-            for (let i = 0; i < signature.length; i++) buffer[i] = signature.charCodeAt(i);
-
-            // 4-byte Little Endian PEC Offset Pointer at 0x08
-            buffer[0x08] = pecOffset & 0xFF;
-            buffer[0x09] = (pecOffset >> 8) & 0xFF;
-            buffer[0x0A] = (pecOffset >> 16) & 0xFF;
-            buffer[0x0B] = (pecOffset >> 24) & 0xFF;
-
-            buffer.set(pecBlock, pecOffset);
-            return buffer;
-        }
-
-        // Encodes one dx/dy stitch pair. Short form is a single signed 7-bit byte
-        // (-64..63). Long form is 2 bytes: top nibble is a command flag (0x8 = plain
-        // long stitch, 0x9 = jump) and the remaining 12 bits are the signed delta.
-        // Per spec, if EITHER axis needs long form, BOTH axes are written in long
-        // form for maximum machine compatibility - the old code encoded each axis
-        // independently, which some readers mis-parse.
-        function encodePecDelta(arr, dx, dy, isJump) {
-            const needsLong = isJump || dx < -64 || dx > 63 || dy < -64 || dy > 63;
-            const nibble = isJump ? 0x9 : 0x8;
-
-            function pushCoord(v, useLongForm) {
-                if (!useLongForm) {
-                    arr.push(v & 0x7F); // short form: 7-bit two's complement
-                } else {
-                    const v12 = v & 0x0FFF; // 12-bit two's complement
-                    arr.push((nibble << 4) | ((v12 >> 8) & 0x0F), v12 & 0xFF);
-                }
+            if (h.length === 4) {
+                return "#" + h[1]+h[1] + h[2]+h[2] + h[3]+h[3];
             }
-
-            pushCoord(dx, needsLong);
-            pushCoord(dy, needsLong);
+            return h;
         }
 
-        function hexToRgb(hex) {
-            const norm = hexToNormalizedHex(hex);
-            const num = parseInt(norm.replace('#',''), 16);
-            return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
-        }
-
-        function rgbToHex(r, g, b) {
-            return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
-        }
-
-        function hexToNormalizedHex(hex) {
-            if (!hex) return '#000000';
-            if (hex.startsWith('rgb')) {
-                const rgb = hex.match(/\d+/g);
-                if (rgb) return rgbToHex(parseInt(rgb[0]), parseInt(rgb[1]), parseInt(rgb[2]));
-            }
-            let h = hex.replace('#', '');
-            if (h.length === 3) h = h.split('').map(c => c + c).join('');
-            return '#' + h;
-        }
-
+        // Initial setup
         updateHoopSize();
-        saveCanvasState();
+
     </script>
 </body>
 </html>
