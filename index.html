@@ -3,108 +3,146 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image to PES Converter</title>
+    <title>PES Embroidery Studio</title>
+    <!-- Load Fabric.js for Drag/Drop/Text/Rotation capabilities -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <style>
-        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; text-align: center; background: #1a1a1a; color: #fff; }
-        #drop-zone { border: 2px dashed #00a8ff; padding: 40px; margin: 20px 0; border-radius: 8px; cursor: pointer; }
-        #drop-zone:hover { background: #2a2a2a; }
-        #preview { max-width: 100%; display: none; margin-top: 20px; }
-        button { background: #00a8ff; color: white; border: none; padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 4px; display: none; }
-        button:hover { background: #0082c6; }
+        body { font-family: Arial, sans-serif; background: #121212; color: #fff; margin: 0; padding: 20px; display: flex; gap: 20px; }
+        #controls { width: 300px; background: #1e1e1e; padding: 20px; border-radius: 8px; display: flex; flex-direction: column; gap: 15px; }
+        #canvas-container { flex-grow: 1; display: flex; justify-content: center; align-items: center; background: #2a2a2a; border-radius: 8px; padding: 20px; }
+        .hoop-bounds { border: 2px dashed #00a8ff; background: #ffffff; }
+        button, select, input { padding: 10px; background: #333; color: white; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #00a8ff; }
     </style>
 </head>
 <body>
 
-    <h1>PES Digitizer</h1>
-    <p>Upload a solid-color graphic to convert.</p>
+    <div id="controls">
+        <h2>PES Studio</h2>
+        
+        <!-- Hoop Selection -->
+        <label>Hoop Size:</label>
+        <select id="hoop-select">
+            <option value="4x4">4" x 4" (100mm x 100mm)</option>
+            <option value="5x7">5" x 7" (130mm x 180mm)</option>
+            <option value="6x10">6" x 10" (160mm x 260mm)</option>
+        </select>
 
-    <div id="drop-zone">Drag & Drop Image Here or Click to Upload</div>
-    <input type="file" id="file-input" accept="image/jpeg, image/png" style="display: none;">
-    
-    <canvas id="processing-canvas" style="display:none;"></canvas>
-    <img id="preview" alt="Artwork Preview">
-    
-    <br>
-    <button id="download-btn">Download PES</button>
+        <!-- Artwork Upload -->
+        <label>Add Artwork:</label>
+        <input type="file" id="img-upload" accept="image/*">
+
+        <!-- Text Engine Controls -->
+        <label>Add Text:</label>
+        <input type="text" id="text-input" placeholder="Enter text (e.g. SHIFTY)">
+        <select id="font-select">
+            <option value="Arial">Arial</option>
+            <option value="Impact">Impact</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Trebuchet MS">Trebuchet MS</option>
+        </select>
+        <button id="add-text-btn">Add Text Object</button>
+
+        <!-- Color Management -->
+        <label>Thread Color Palette:</label>
+        <input type="color" id="thread-color" value="#00a8ff">
+        <button id="apply-color-btn">Assign Color to Selected</button>
+
+        <hr style="border-color: #444; width: 100%;">
+        
+        <button id="generate-pes-btn" style="background: #00a8ff; font-weight: bold;">Export PES File</button>
+    </div>
+
+    <div id="canvas-container">
+        <!-- Interactive Fabric.js Canvas -->
+        <div class="hoop-bounds" id="hoop-wrapper">
+            <canvas id="embroidery-canvas"></canvas>
+        </div>
+    </div>
 
     <script>
-        const dropZone = document.getElementById('drop-zone');
-        const fileInput = document.getElementById('file-input');
-        const preview = document.getElementById('preview');
-        const canvas = document.getElementById('processing-canvas');
-        const ctx = canvas.getContext('2d');
-        const downloadBtn = document.getElementById('download-btn');
+        // Initialize Interactive Canvas
+        const canvas = new fabric.Canvas('embroidery-canvas');
+        
+        // Define Hoop Dimensions (Pixels mapped to relative sizes)
+        const hoopSizes = {
+            '4x4': { width: 400, height: 400 },
+            '5x7': { width: 500, height: 700 },
+            '6x10': { width: 600, height: 1000 }
+        };
 
-        // Handle File Uploads
-        dropZone.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', handleFile);
+        function setHoopSize(sizeKey) {
+            const size = hoopSizes[sizeKey];
+            canvas.setWidth(size.width);
+            canvas.setHeight(size.height);
+            document.getElementById('hoop-wrapper').style.width = size.width + 'px';
+            document.getElementById('hoop-wrapper').style.height = size.height + 'px';
+        }
+        setHoopSize('4x4');
 
-        function handleFile(e) {
+        document.getElementById('hoop-select').addEventListener('change', (e) => setHoopSize(e.target.value));
+
+        // Add Uploaded Image (Draggable, Scalable, Rotatable)
+        document.getElementById('img-upload').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
-
             const reader = new FileReader();
-            reader.onload = (event) => {
-                const img = new Image();
-                img.onload = () => {
-                    // Display preview
-                    preview.src = img.src;
-                    preview.style.display = 'block';
-                    
-                    // Draw to hidden canvas to access raw pixel data for tracing
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
-                    
-                    // Show download button
-                    downloadBtn.style.display = 'inline-block';
-                };
-                img.src = event.target.result;
+            reader.onload = function(f) {
+                fabric.Image.fromURL(f.target.result, function(img) {
+                    img.scaleToWidth(200);
+                    canvas.add(img);
+                    canvas.setActiveObject(img);
+                });
             };
             reader.readAsDataURL(file);
-        }
+        });
 
-        // Handle PES File Generation and Download
-       // Handle PES File Generation and Download
-        downloadBtn.addEventListener('click', () => {
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const pixels = imageData.data;
-            const stitchPoints = [];
+        // Add Interactive Text
+        document.getElementById('add-text-btn').addEventListener('click', () => {
+            const textVal = document.getElementById('text-input').value || 'SHIFTY';
+            const fontFamily = document.getElementById('font-select').value;
+            const color = document.getElementById('thread-color').value;
 
-            // The distance between needle drops (in pixels). 
-            // A lower number means denser thread coverage.
-            const stitchDensity = 4; 
+            const text = new fabric.Text(textVal, {
+                left: 100,
+                top: 100,
+                fontFamily: fontFamily,
+                fill: color,
+                fontSize: 40
+            });
+            canvas.add(text);
+            canvas.setActiveObject(text);
+        });
 
-            // Phase 1 & 2: Grid Scanning and Pathfinding
-            // We scan the canvas to find the solid shapes and weave a continuous path
-            for (let y = 0; y < canvas.height; y += stitchDensity) {
-                
-                // We reverse the X direction every other row so the thread zig-zags 
-                // back and forth across the design without jumping across the screen.
-                const isEvenRow = (y / stitchDensity) % 2 === 0;
-                const startX = isEvenRow ? 0 : canvas.width - 1;
-                const endX = isEvenRow ? canvas.width : -1;
-                const stepX = isEvenRow ? stitchDensity : -stitchDensity;
+        // Color Assignee
+        document.getElementById('apply-color-btn').addEventListener('click', () => {
+            const activeObj = canvas.getActiveObject();
+            if (activeObj) {
+                const color = document.getElementById('thread-color').value;
+                activeObj.set('fill', color);
+                canvas.renderAll();
+            }
+        });
 
-                for (let x = startX; x !== endX; x += stepX) {
-                    const index = (y * canvas.width + x) * 4;
-                    const r = pixels[index];
-                    const g = pixels[index + 1];
-                    const b = pixels[index + 2];
-                    const alpha = pixels[index + 3];
-
-                    // Simple thresholding: If the pixel is dark and mostly opaque, drop a stitch
-                    // (This targets solid, dark logos and ignores transparent/white backgrounds)
-                    if (alpha > 128 && (r < 150 && g < 150 && b < 150)) {
-                        stitchPoints.push({ x: x, y: y });
-                    }
-                }
+        // Consolidated Export Pipeline
+        document.getElementById('generate-pes-btn').addEventListener('click', () => {
+            const objects = canvas.getObjects();
+            if (objects.length === 0) {
+                alert('Add artwork or text to the canvas first.');
+                return;
             }
 
-            console.log(`Mapped ${stitchPoints.length} needle coordinates.`);
-            alert(`Algorithm complete: Generated ${stitchPoints.length} stitches. \n\nNext step: Importing the binary encoder to write the .pes file.`);
+            // Group Objects by Thread Color to eliminate redundant machine stops
+            const colorBlocks = {};
+            objects.forEach(obj => {
+                const color = obj.fill || '#000000';
+                if (!colorBlocks[color]) colorBlocks[color] = [];
+                colorBlocks[color].push(obj);
+            });
+
+            console.log("Consolidated Color Blocks:", Object.keys(colorBlocks));
+            alert(`Ready to digitize ${Object.keys(colorBlocks).length} distinct thread color block(s).`);
         });
-       
     </script>
 </body>
 </html>
