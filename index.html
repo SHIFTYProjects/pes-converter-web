@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PES Embroidery Studio - Vector Tracing</title>
+    <!-- Google Fonts Library (Auto-loaded for Chrome) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Anton&family=Lobster&family=Montserrat:wght@400;700&family=Open+Sans:wght@400;700&family=Oswald:wght@500;700&family=Pacifico&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    
     <!-- Fabric.js for interactive canvas design -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <!-- ImageTracer.js for Raster-to-Vector conversion -->
@@ -39,7 +44,7 @@
         .swatch:hover, .swatch.active { transform: scale(1.2); border-color: #00a8ff; z-index: 2; }
 
         .color-map-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; background: #161616; padding: 8px; border-radius: 6px; border: 1px solid #333; }
-        .color-map-row { display: flex; align-items: center; justify-space-between; background: #222; padding: 6px 10px; border-radius: 4px; border: 1px solid #333; cursor: pointer; }
+        .color-map-row { display: flex; align-items: center; justify-content: space-between; background: #222; padding: 6px 10px; border-radius: 4px; border: 1px solid #333; cursor: pointer; }
         .color-map-row.selected { border-color: #00a8ff; background: #2a2a2a; }
         .color-preview-pair { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
 
@@ -129,12 +134,31 @@
                 <input type="text" id="text-input" placeholder="e.g. SHIFTY">
                 <button id="add-text-btn">Add Text</button>
             </div>
+            <label style="margin-top:4px;">Font Style:</label>
             <select id="font-select">
-                <option value="Arial">Arial</option>
-                <option value="Impact">Impact</option>
-                <option value="Courier New">Courier New</option>
-                <option value="Trebuchet MS">Trebuchet MS</option>
-                <option value="Georgia">Georgia</option>
+                <!-- Standard Web-Safe Fonts -->
+                <optgroup label="Standard System Fonts">
+                    <option value="Arial" selected>Arial</option>
+                    <option value="Arial Black">Arial Black</option>
+                    <option value="Impact">Impact</option>
+                    <option value="Verdana">Verdana</option>
+                    <option value="Tahoma">Tahoma</option>
+                    <option value="Trebuchet MS">Trebuchet MS</option>
+                    <option value="Comic Sans MS">Comic Sans MS</option>
+                    <option value="Times New Roman">Times New Roman</option>
+                    <option value="Georgia">Georgia</option>
+                    <option value="Courier New">Courier New</option>
+                </optgroup>
+                <!-- Google Fonts -->
+                <optgroup label="Web & Google Fonts">
+                    <option value="Roboto">Roboto</option>
+                    <option value="Open Sans">Open Sans</option>
+                    <option value="Montserrat">Montserrat</option>
+                    <option value="Oswald">Oswald (Bold Block)</option>
+                    <option value="Anton">Anton (Heavy Display)</option>
+                    <option value="Lobster">Lobster (Script)</option>
+                    <option value="Pacifico">Pacifico (Handwritten)</option>
+                </optgroup>
             </select>
         </div>
 
@@ -496,7 +520,7 @@
             reader.readAsDataURL(file);
         });
 
-        // STEP 1: CONTIGUOUS OUTER FLOOD-FILL BACKGROUND REMOVAL (Preserves Inner White Details)
+        // STEP 1: CONTIGUOUS OUTER FLOOD-FILL BACKGROUND REMOVAL
         document.getElementById('btn-remove-bg').addEventListener('click', () => {
             let activeObj = canvas.getActiveObject() || workingImageObject;
             if (!activeObj || activeObj.type !== 'image') {
@@ -514,16 +538,13 @@
             const imgData = ctx.getImageData(0, 0, w, h);
             const data = imgData.data;
 
-            // Helper to test if a pixel is near white/light background
             function isLightBgPixel(idx) {
                 return data[idx + 3] > 0 && data[idx] > 220 && data[idx + 1] > 220 && data[idx + 2] > 220;
             }
 
-            // Breadth-First Flood Fill Queue starting strictly from edges
             const visited = new Uint8Array(w * h);
             const queue = [];
 
-            // Add all outer border pixels to seed queue
             for (let x = 0; x < w; x++) {
                 queue.push(x, 0);
                 queue.push(x, h - 1);
@@ -544,9 +565,8 @@
 
                 const dataIdx = pIdx * 4;
                 if (isLightBgPixel(dataIdx)) {
-                    data[dataIdx + 3] = 0; // Make transparent
+                    data[dataIdx + 3] = 0;
 
-                    // Expand 4-directionally
                     queue.push(x + 1, y);
                     queue.push(x - 1, y);
                     queue.push(x, y + 1);
@@ -739,12 +759,11 @@
             applyThreadColorToSelected(activeThreadColor);
         });
 
-        // RECOLOR DYNAMICALLY BASED ON ACTIVE SELECTION (TEXT, SHAPE, OR VECTOR LAYER)
+        // RECOLOR DYNAMICALLY BASED ON ACTIVE SELECTION
         function applyThreadColorToSelected(newColorHex) {
             const activeObj = canvas.getActiveObject();
             if (!activeObj) return;
 
-            // 1. If active object is Text or IText
             if (activeObj.type === 'text' || activeObj.type === 'i-text') {
                 activeObj.set('fill', newColorHex);
                 canvas.renderAll();
@@ -753,7 +772,6 @@
                 return;
             }
 
-            // 2. If active object is a Vector Group
             if ((activeObj === currentVectorGroup || activeObj.type === 'group') && selectedColorIndex !== null && vectorColorMap[selectedColorIndex]) {
                 const targetItem = vectorColorMap[selectedColorIndex];
                 const oldColorHex = targetItem.targetHex.toLowerCase();
@@ -778,7 +796,6 @@
                 return;
             }
 
-            // 3. Fallback for single path or general shape
             if (activeObj.set) {
                 activeObj.set('fill', newColorHex);
                 canvas.renderAll();
@@ -787,7 +804,7 @@
             }
         }
 
-        // TEXT CREATION
+        // TEXT CREATION & LIVE FONT SELECTION
         document.getElementById('add-text-btn').addEventListener('click', () => {
             const textVal = document.getElementById('text-input').value || 'SHIFTY';
             const fontFamily = document.getElementById('font-select').value;
@@ -802,6 +819,18 @@
             canvas.setActiveObject(text);
             canvas.renderAll();
             saveCanvasState();
+        });
+
+        // LIVE FONT CHANGE EVENT LISTENER FOR SELECTED TEXT
+        document.getElementById('font-select').addEventListener('change', function() {
+            const selectedFont = this.value;
+            const activeObj = canvas.getActiveObject();
+            if (activeObj && (activeObj.type === 'text' || activeObj.type === 'i-text')) {
+                activeObj.set('fontFamily', selectedFont);
+                canvas.renderAll();
+                saveCanvasState();
+                if (previewActive) renderStitchPreview();
+            }
         });
 
         // GRANULAR LAYER STEPPING & ORDERING
@@ -854,7 +883,6 @@
 
             if (!active) return;
 
-            // If selected object is a vector group, switch context
             if (active.type === 'group' && active._objects) {
                 currentVectorGroup = active;
                 extractVectorColors(active);
@@ -862,6 +890,9 @@
             } else if (active.type === 'text' || active.type === 'i-text') {
                 if (typeof active.fill === 'string') {
                     activeThreadColor = active.fill;
+                }
+                if (active.fontFamily) {
+                    document.getElementById('font-select').value = active.fontFamily;
                 }
             }
         }
