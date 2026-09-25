@@ -65,19 +65,45 @@
         }
 
         // Handle PES File Generation and Download
+       // Handle PES File Generation and Download
         downloadBtn.addEventListener('click', () => {
-            // TODO: Add edge-tracing logic and JS-embroidery stitch generation here
-            
-            // For now, we generate a dummy text file with a .pes extension to test the pipeline
-            const dummyData = "PES Mock File Content";
-            const blob = new Blob([dummyData], { type: "application/octet-stream" });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = "shifty_design.pes";
-            
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const pixels = imageData.data;
+            const stitchPoints = [];
+
+            // The distance between needle drops (in pixels). 
+            // A lower number means denser thread coverage.
+            const stitchDensity = 4; 
+
+            // Phase 1 & 2: Grid Scanning and Pathfinding
+            // We scan the canvas to find the solid shapes and weave a continuous path
+            for (let y = 0; y < canvas.height; y += stitchDensity) {
+                
+                // We reverse the X direction every other row so the thread zig-zags 
+                // back and forth across the design without jumping across the screen.
+                const isEvenRow = (y / stitchDensity) % 2 === 0;
+                const startX = isEvenRow ? 0 : canvas.width - 1;
+                const endX = isEvenRow ? canvas.width : -1;
+                const stepX = isEvenRow ? stitchDensity : -stitchDensity;
+
+                for (let x = startX; x !== endX; x += stepX) {
+                    const index = (y * canvas.width + x) * 4;
+                    const r = pixels[index];
+                    const g = pixels[index + 1];
+                    const b = pixels[index + 2];
+                    const alpha = pixels[index + 3];
+
+                    // Simple thresholding: If the pixel is dark and mostly opaque, drop a stitch
+                    // (This targets solid, dark logos and ignores transparent/white backgrounds)
+                    if (alpha > 128 && (r < 150 && g < 150 && b < 150)) {
+                        stitchPoints.push({ x: x, y: y });
+                    }
+                }
+            }
+
+            console.log(`Mapped ${stitchPoints.length} needle coordinates.`);
+            alert(`Algorithm complete: Generated ${stitchPoints.length} stitches. \n\nNext step: Importing the binary encoder to write the .pes file.`);
+        });
         });
     </script>
 </body>
