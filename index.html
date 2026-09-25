@@ -11,24 +11,28 @@
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; gap: 20px; height: 100vh; overflow: hidden; }
         
         /* Sidebar Controls */
-        #sidebar { width: 350px; background: #1e1e1e; padding: 20px; border-radius: 8px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; max-height: calc(100vh - 40px); border: 1px solid #333; }
-        h2 { margin: 0 0 5px 0; font-size: 1.3rem; color: #00a8ff; }
-        h3 { margin: 10px 0 5px 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: #888; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        #sidebar { width: 380px; background: #1e1e1e; padding: 20px; border-radius: 8px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; max-height: calc(100vh - 40px); border: 1px solid #333; }
+        h2 { margin: 0 0 2px 0; font-size: 1.3rem; color: #00a8ff; }
+        h3 { margin: 10px 0 4px 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: #888; border-bottom: 1px solid #333; padding-bottom: 4px; }
         
         .control-group { display: flex; flex-direction: column; gap: 6px; }
-        .row { display: flex; gap: 10px; align-items: center; }
+        .row { display: flex; gap: 8px; align-items: center; }
         .row > * { flex: 1; }
 
-        label { font-size: 0.85rem; color: #aaa; }
-        button, select, input[type="text"], input[type="number"] { padding: 8px 10px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; font-size: 0.9rem; }
+        label { font-size: 0.82rem; color: #aaa; }
+        button, select, input[type="text"], input[type="number"], input[type="range"] { padding: 8px 10px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; font-size: 0.88rem; }
         button { cursor: pointer; background: #333; transition: 0.2s; font-weight: 600; }
         button:hover { background: #00a8ff; color: #fff; border-color: #00a8ff; }
         
-        /* Swatches */
-        .palette { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
-        .swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #444; cursor: pointer; transition: 0.1s; position: relative; }
+        /* Swatches & Color Mapping Cards */
+        .palette { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+        .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #444; cursor: pointer; transition: 0.1s; position: relative; }
         .swatch:hover, .swatch.active { transform: scale(1.15); border-color: #00a8ff; }
-        .swatch.selected-extracted { border-color: #FFD100; box-shadow: 0 0 8px #FFD100; }
+
+        .color-map-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; background: #161616; padding: 8px; border-radius: 6px; border: 1px solid #333; }
+        .color-map-row { display: flex; align-items: center; justify-content: space-between; background: #222; padding: 6px 10px; border-radius: 4px; border: 1px solid #333; }
+        .color-map-row.selected { border-color: #00a8ff; background: #2a2a2a; }
+        .color-preview-pair { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
 
         /* Workspace Area & Rulers */
         #workspace { flex-grow: 1; display: flex; flex-direction: column; background: #181818; border-radius: 8px; padding: 10px; border: 1px solid #333; position: relative; overflow: auto; }
@@ -38,7 +42,7 @@
         #ruler-left { grid-column: 1; grid-row: 2; background: #222; border-right: 1px solid #444; }
         #ruler-corner { grid-column: 1; grid-row: 1; background: #1a1a1a; border-right: 1px solid #444; border-bottom: 1px solid #444; }
         
-        #canvas-wrapper { grid-column: 2; grid-row: 2; position: relative; background: #f0f0f0; border: 2px dashed #00a8ff; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        #canvas-wrapper { grid-column: 2; grid-row: 2; position: relative; background: #ffffff; border: 2px dashed #00a8ff; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         #stitch-preview-canvas { position: absolute; top: 0; left: 0; pointer-events: none; display: none; z-index: 10; background: #1a1a1a; }
     </style>
 </head>
@@ -46,7 +50,7 @@
 
     <!-- SIDEBAR CONTROL PANEL -->
     <div id="sidebar">
-        <h2>PES Studio</h2>
+        <h2>PES Embroidery Studio</h2>
 
         <!-- HOOP CONFIGURATION -->
         <h3>1. Hoop & Orientation</h3>
@@ -83,12 +87,12 @@
         </div>
 
         <!-- ARTWORK & TEXT -->
-        <h3>2. Add Objects</h3>
+        <h3>2. Import Graphic / Text</h3>
         <div class="control-group">
             <input type="file" id="img-upload" accept="image/*" style="display:none;">
-            <button onclick="document.getElementById('img-upload').click()">Upload Graphic (PNG/JPG)</button>
+            <button onclick="document.getElementById('img-upload').click()">Upload Image (PNG/JPG)</button>
         </div>
-        <div class="control-group" style="margin-top: 5px;">
+        <div class="control-group" style="margin-top: 4px;">
             <div class="row">
                 <input type="text" id="text-input" placeholder="e.g. SHIFTY">
                 <button id="add-text-btn">Add Text</button>
@@ -102,18 +106,30 @@
             </select>
         </div>
 
-        <!-- IMAGE COLOR EXTRACTION & RECOLORING -->
-        <div id="image-colors-section" style="display: none;">
-            <h3>Extracted Image Colors</h3>
-            <label>Click an image color below to replace it:</label>
-            <div class="palette" id="extracted-palette"></div>
-            <div class="row" style="margin-top: 8px;">
-                <button id="btn-recolor-apply" style="background:#00a8ff; display:none;">Swap Color</button>
+        <!-- COLOR TRACING & MERGING SLIDER -->
+        <div id="color-tracing-section" style="display: none;">
+            <h3>3. Image Color Tracing & Merging</h3>
+            
+            <div class="control-group">
+                <div class="row" style="justify-content: space-between;">
+                    <label>Color Merging Aggressiveness:</label>
+                    <span id="tolerance-val" style="font-size:0.8rem; color:#00a8ff; font-weight:bold;">30</span>
+                </div>
+                <input type="range" id="color-tolerance" min="5" max="100" value="30">
+                <label style="font-size: 0.75rem; color:#888;">Slide right to combine similar shades into fewer colors (Max 20).</label>
+            </div>
+
+            <div class="control-group">
+                <div class="row" style="justify-content: space-between; align-items:center;">
+                    <label>Detected Colors (<span id="color-count-label">0</span>):</label>
+                    <button id="btn-start-over" style="background: #e65100; font-size: 0.75rem; padding: 4px 8px;">Start Over / Reset</button>
+                </div>
+                <div class="color-map-list" id="color-map-container"></div>
             </div>
         </div>
 
-        <!-- OBJECT PROPERTIES & LAYERS -->
-        <h3>3. Selected Object Controls</h3>
+        <!-- OBJECT CONTROLS & LAYERS -->
+        <h3>4. Selected Layer Controls</h3>
         <div class="control-group">
             <label>Dimensions (Inches):</label>
             <div class="row">
@@ -132,16 +148,16 @@
         </div>
 
         <div class="control-group">
-            <label>Layer Order & Actions:</label>
+            <label>Layer Ordering & Deletion:</label>
             <div class="row">
                 <button id="btn-front">Bring to Front</button>
                 <button id="btn-back">Send to Back</button>
             </div>
-            <button id="btn-delete" style="background: #c62828; margin-top: 4px;">Delete Selected (Del)</button>
+            <button id="btn-delete" style="background: #c62828; margin-top: 4px;">Delete Selected (Del / Backspace)</button>
         </div>
 
-        <!-- THREAD COLORS -->
-        <h3>4. Thread Color Palette</h3>
+        <!-- THREAD COLORS PALETTE -->
+        <h3>5. Thread Palette</h3>
         <div class="control-group">
             <div class="palette" id="thread-palette">
                 <div class="swatch active" style="background:#003DA5;" data-color="#003DA5" title="Royal Blue"></div>
@@ -155,15 +171,15 @@
                 <div class="swatch" style="background:#FFFFFF; border-color:#aaa;" data-color="#FFFFFF" title="White"></div>
             </div>
             <div class="row" style="margin-top: 8px;">
-                <label>Custom Thread Color:</label>
+                <label>Custom Thread Color Picker:</label>
                 <input type="color" id="custom-thread-color" value="#003DA5">
             </div>
         </div>
 
-        <!-- PREVIEW & EXPORT -->
-        <h3>5. Output & Simulation</h3>
+        <!-- OUTPUT & PREVIEW -->
+        <h3>6. Stitch Preview & PES Export</h3>
         <button id="toggle-preview-btn" style="background: #2e7d32;">Toggle Realistic Stitch Preview</button>
-        <button id="export-pes-btn" style="background: #00a8ff; font-weight: bold; margin-top: 5px;">Export .PES File</button>
+        <button id="export-pes-btn" style="background: #00a8ff; font-weight: bold; margin-top: 5px;">Export Brother .PES File</button>
     </div>
 
     <!-- MAIN WORKSPACE / CANVAS AREA -->
@@ -195,13 +211,16 @@
         let currentHoop = { w: 5, h: 7 };
         let isLandscape = false;
         let activeThreadColor = '#003DA5';
-        let selectedExtractedColor = null;
+
+        // Image Quantization & Color Mapping State
+        let activeImageClusters = [];
+        let selectedClusterIndex = null;
 
         const canvas = new fabric.Canvas('main-canvas', { selection: true });
         const overlayCanvas = document.getElementById('stitch-preview-canvas');
         const overlayCtx = overlayCanvas.getContext('2d');
 
-        // Hoop Setup
+        // Hoop Dimensions Setup
         function updateHoopSize() {
             let widthInches = currentHoop.w;
             let heightInches = currentHoop.h;
@@ -225,6 +244,7 @@
             wrapper.style.height = pxH + 'px';
 
             drawRulers(pxW, pxH);
+            if (previewActive) renderStitchPreview();
         }
 
         function drawRulers(pxW, pxH) {
@@ -257,7 +277,7 @@
             }
         }
 
-        // Hoop Controls
+        // Hoop Select Events
         document.getElementById('hoop-select').addEventListener('change', (e) => {
             const val = e.target.value;
             const customBox = document.getElementById('custom-hoop-inputs');
@@ -271,7 +291,7 @@
             updateHoopSize();
         });
 
-        // Orientation
+        // Orientation Controls
         document.getElementById('orient-portrait').addEventListener('click', function() {
             isLandscape = false;
             this.style.background = '#00a8ff';
@@ -286,7 +306,7 @@
             updateHoopSize();
         });
 
-        // IMAGE UPLOAD & COLOR EXTRACTION
+        // IMAGE UPLOAD & INITIALIZATION
         document.getElementById('img-upload').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -296,119 +316,187 @@
                 imgObj.src = f.target.result;
                 imgObj.onload = function() {
                     const fabricImg = new fabric.Image(imgObj);
-                    fabricImg.scaleToWidth(2.5 * DPI);
-                    fabricImg.set({ left: 40, top: 40 });
+                    fabricImg.scaleToWidth(3.0 * DPI);
+                    fabricImg.set({ left: 30, top: 30 });
                     
-                    // Save original canvas element for pixel color swapping
+                    // Create uncompressed raw master canvas
                     const origCanvas = document.createElement('canvas');
                     origCanvas.width = imgObj.width;
                     origCanvas.height = imgObj.height;
                     const oCtx = origCanvas.getContext('2d');
                     oCtx.drawImage(imgObj, 0, 0);
-                    fabricImg.originalCanvas = origCanvas;
+                    
+                    fabricImg.rawCanvas = origCanvas;
 
                     canvas.add(fabricImg);
                     canvas.setActiveObject(fabricImg);
                     
-                    extractColorsFromImage(fabricImg);
+                    // Trigger color tracing
+                    processImageColors(fabricImg);
                 };
             };
             reader.readAsDataURL(file);
         });
 
-        // Extract Color Palette from Image
-        function extractColorsFromImage(fabricImg) {
-            const origCanvas = fabricImg.originalCanvas;
-            if (!origCanvas) return;
-            const ctx = origCanvas.getContext('2d');
-            const imgData = ctx.getImageData(0, 0, origCanvas.width, origCanvas.height).data;
-            
-            const colorCounts = {};
-            for (let i = 0; i < imgData.length; i += 16) { // Sample pixels
+        // COLOR QUANTIZATION & CLUSTERING ENGINE (Max 20 Colors)
+        function processImageColors(fabricImg) {
+            if (!fabricImg || !fabricImg.rawCanvas) return;
+
+            const rawCanvas = fabricImg.rawCanvas;
+            const ctx = rawCanvas.getContext('2d');
+            const imgData = ctx.getImageData(0, 0, rawCanvas.width, rawCanvas.height).data;
+
+            const tolerance = parseInt(document.getElementById('color-tolerance').value);
+            const maxColors = 20;
+            const clusters = [];
+
+            for (let i = 0; i < imgData.length; i += 16) { // Sample pixel grid
                 const a = imgData[i + 3];
-                if (a < 128) continue; // Ignore transparent pixels
-                
-                // Quantize RGB to 32-step buckets
-                const r = Math.round(imgData[i] / 32) * 32;
-                const g = Math.round(imgData[i+1] / 32) * 32;
-                const b = Math.round(imgData[i+2] / 32) * 32;
-                const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-                
-                colorCounts[hex] = (colorCounts[hex] || 0) + 1;
-            }
+                if (a < 128) continue; // Skip transparency
 
-            const sortedColors = Object.keys(colorCounts).sort((a,b) => colorCounts[b] - colorCounts[a]).slice(0, 6);
-            const container = document.getElementById('extracted-palette');
-            container.innerHTML = '';
+                const r = imgData[i];
+                const g = imgData[i + 1];
+                const b = imgData[i + 2];
 
-            sortedColors.forEach((hex, idx) => {
-                const swatch = document.createElement('div');
-                swatch.className = 'swatch' + (idx === 0 ? ' selected-extracted' : '');
-                swatch.style.background = hex;
-                swatch.dataset.color = hex;
-                swatch.title = `Extracted Color: ${hex}`;
-                
-                swatch.addEventListener('click', function() {
-                    document.querySelectorAll('#extracted-palette .swatch').forEach(s => s.classList.remove('selected-extracted'));
-                    this.classList.add('selected-extracted');
-                    selectedExtractedColor = hex;
-                });
-                
-                container.appendChild(swatch);
-            });
+                // Check distance to existing clusters
+                let foundCluster = false;
+                for (let c of clusters) {
+                    const dr = r - c.r;
+                    const dg = g - c.g;
+                    const db = b - c.b;
+                    const dist = Math.sqrt(dr * dr + dg * dg + db * db);
 
-            selectedExtractedColor = sortedColors[0] || null;
-            document.getElementById('image-colors-section').style.display = 'block';
-        }
+                    if (dist < tolerance) {
+                        c.pixelCount++;
+                        foundCluster = true;
+                        break;
+                    }
+                }
 
-        // Swap Color in Image
-        function recolorActiveImage(targetHex, replacementHex) {
-            const active = canvas.getActiveObject();
-            if (!active || active.type !== 'image' || !active.originalCanvas) return;
-
-            const origCanvas = active.originalCanvas;
-            const ctx = origCanvas.getContext('2d');
-            const imgData = ctx.getImageData(0, 0, origCanvas.width, origCanvas.height);
-            const data = imgData.data;
-
-            const targetRgb = hexToRgb(targetHex);
-            const replacementRgb = hexToRgb(replacementHex);
-
-            for (let i = 0; i < data.length; i += 4) {
-                if (data[i + 3] < 128) continue;
-
-                // Color Euclidean Distance
-                const dr = data[i] - targetRgb.r;
-                const dg = data[i+1] - targetRgb.g;
-                const db = data[i+2] - targetRgb.b;
-                const dist = Math.sqrt(dr*dr + dg*dg + db*db);
-
-                if (dist < 60) { // Color match threshold
-                    data[i] = replacementRgb.r;
-                    data[i+1] = replacementRgb.g;
-                    data[i+2] = replacementRgb.b;
+                if (!foundCluster && clusters.length < maxColors) {
+                    const hex = rgbToHex(r, g, b);
+                    clusters.push({
+                        id: clusters.length,
+                        r: r, g: g, b: b,
+                        origHex: hex,
+                        targetHex: hex, // User mapped color
+                        pixelCount: 1
+                    });
                 }
             }
 
-            ctx.putImageData(imgData, 0, 0);
+            activeImageClusters = clusters;
+            selectedClusterIndex = activeImageClusters.length > 0 ? 0 : null;
 
-            // Update Fabric Image element source
-            const newImg = new Image();
-            newImg.src = origCanvas.toDataURL();
-            newImg.onload = function() {
-                active.setElement(newImg);
+            renderColorMapUI();
+            updateQuantizedImageOnCanvas(fabricImg);
+            document.getElementById('color-tracing-section').style.display = 'block';
+        }
+
+        function renderColorMapUI() {
+            const container = document.getElementById('color-map-container');
+            container.innerHTML = '';
+            document.getElementById('color-count-label').innerText = activeImageClusters.length;
+
+            activeImageClusters.forEach((cluster, idx) => {
+                const row = document.createElement('div');
+                row.className = 'color-map-row' + (idx === selectedClusterIndex ? ' selected' : '');
+                
+                row.innerHTML = `
+                    <div class="color-preview-pair">
+                        <div class="swatch" style="background:${cluster.origHex};" title="Original Shade"></div>
+                        <span>&rarr;</span>
+                        <div class="swatch" style="background:${cluster.targetHex}; border-color:#00a8ff;" title="Mapped Thread Color"></div>
+                    </div>
+                    <span style="font-size: 0.75rem; color: #888;">Color #${idx + 1}</span>
+                `;
+
+                row.addEventListener('click', () => {
+                    selectedClusterIndex = idx;
+                    document.querySelectorAll('.color-map-row').forEach(r => r.classList.remove('selected'));
+                    row.classList.add('selected');
+                });
+
+                container.appendChild(row);
+            });
+        }
+
+        // Re-render Quantized Image based on Mapped Colors
+        function updateQuantizedImageOnCanvas(fabricImg) {
+            if (!fabricImg || !fabricImg.rawCanvas || activeImageClusters.length === 0) return;
+
+            const rawCanvas = fabricImg.rawCanvas;
+            const ctx = rawCanvas.getContext('2d');
+            const srcData = ctx.getImageData(0, 0, rawCanvas.width, rawCanvas.height);
+            const data = srcData.data;
+
+            const displayCanvas = document.createElement('canvas');
+            displayCanvas.width = rawCanvas.width;
+            displayCanvas.height = rawCanvas.height;
+            const dCtx = displayCanvas.getContext('2d');
+            const destImgData = dCtx.createImageData(rawCanvas.width, rawCanvas.height);
+            const destData = destImgData.data;
+
+            const tolerance = parseInt(document.getElementById('color-tolerance').value);
+
+            for (let i = 0; i < data.length; i += 4) {
+                const a = data[i + 3];
+                if (a < 128) {
+                    destData[i + 3] = 0;
+                    continue;
+                }
+
+                const r = data[i], g = data[i + 1], b = data[i + 2];
+                let closestCluster = activeImageClusters[0];
+                let minDist = Infinity;
+
+                for (let c of activeImageClusters) {
+                    const dr = r - c.r, dg = g - c.g, db = b - c.b;
+                    const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closestCluster = c;
+                    }
+                }
+
+                const mappedRgb = hexToRgb(closestCluster.targetHex);
+                destData[i] = mappedRgb.r;
+                destData[i + 1] = mappedRgb.g;
+                destData[i + 2] = mappedRgb.b;
+                destData[i + 3] = 255;
+            }
+
+            dCtx.putImageData(destImgData, 0, 0);
+
+            const updatedImg = new Image();
+            updatedImg.src = displayCanvas.toDataURL();
+            updatedImg.onload = function() {
+                fabricImg.setElement(updatedImg);
                 canvas.renderAll();
-                extractColorsFromImage(active); // Refresh palette UI
                 if (previewActive) renderStitchPreview();
             };
         }
 
-        function hexToRgb(hex) {
-            const num = parseInt(hex.replace('#',''), 16);
-            return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
-        }
+        // Color Merging Tolerance Slider Event
+        document.getElementById('color-tolerance').addEventListener('input', function() {
+            document.getElementById('tolerance-val').innerText = this.value;
+            const active = canvas.getActiveObject();
+            if (active && active.type === 'image') {
+                processImageColors(active);
+            }
+        });
 
-        // Add Text
+        // Start Over / Reset Button Event
+        document.getElementById('btn-start-over').addEventListener('click', () => {
+            const active = canvas.getActiveObject();
+            if (active && active.type === 'image') {
+                document.getElementById('color-tolerance').value = 30;
+                document.getElementById('tolerance-val').innerText = '30';
+                processImageColors(active);
+            }
+        });
+
+        // Text Creation
         document.getElementById('add-text-btn').addEventListener('click', () => {
             const textVal = document.getElementById('text-input').value || 'SHIFTY';
             const fontFamily = document.getElementById('font-select').value;
@@ -423,7 +511,7 @@
             canvas.setActiveObject(text);
         });
 
-        // Layer Controls & Deletion
+        // Layer Management
         document.getElementById('btn-front').addEventListener('click', () => {
             const active = canvas.getActiveObject();
             if (active) { canvas.bringToFront(active); canvas.renderAll(); }
@@ -441,7 +529,7 @@
                 canvas.discardActiveObject();
                 canvas.renderAll();
                 updateObjectInputs();
-                document.getElementById('image-colors-section').style.display = 'none';
+                document.getElementById('color-tracing-section').style.display = 'none';
             }
         }
 
@@ -454,7 +542,7 @@
             }
         });
 
-        // Object Dimensions Readout
+        // UI Inspector & Selection Updates
         function updateObjectInputs() {
             const active = canvas.getActiveObject();
             const wInput = document.getElementById('obj-w');
@@ -465,66 +553,65 @@
                 wInput.value = (active.getBoundingRect().width / DPI).toFixed(2);
                 hInput.value = (active.getBoundingRect().height / DPI).toFixed(2);
                 
-                if (active.type === 'image') {
-                    extractColorsFromImage(active);
+                if (active.type === 'image' && active.rawCanvas) {
+                    processImageColors(active);
                 } else {
-                    document.getElementById('image-colors-section').style.display = 'none';
+                    document.getElementById('color-tracing-section').style.display = 'none';
                 }
             } else {
                 wInput.disabled = true; hInput.disabled = true;
                 wInput.value = ''; hInput.value = '';
-                document.getElementById('image-colors-section').style.display = 'none';
+                document.getElementById('color-tracing-section').style.display = 'none';
             }
         }
 
         canvas.on('selection:created', updateObjectInputs);
         canvas.on('selection:updated', updateObjectInputs);
         canvas.on('selection:cleared', updateObjectInputs);
-        canvas.on('object:modified', updateObjectInputs);
 
-        // Thread Palette Swatches
+        // Thread Palette Swatch Selection & Color Mapping Assignment
         document.querySelectorAll('#thread-palette .swatch').forEach(swatch => {
             swatch.addEventListener('click', function() {
                 document.querySelectorAll('#thread-palette .swatch').forEach(s => s.classList.remove('active'));
                 this.classList.add('active');
                 activeThreadColor = this.dataset.color;
-                applyThreadColor(activeThreadColor);
+                applyThreadColorToSelected(activeThreadColor);
             });
         });
 
         document.getElementById('custom-thread-color').addEventListener('input', function() {
             activeThreadColor = this.value;
-            applyThreadColor(activeThreadColor);
+            applyThreadColorToSelected(activeThreadColor);
         });
 
-        function applyThreadColor(color) {
+        function applyThreadColorToSelected(colorHex) {
             const active = canvas.getActiveObject();
             if (!active) return;
 
             if (active.type === 'image') {
-                if (selectedExtractedColor) {
-                    recolorActiveImage(selectedExtractedColor, color);
+                if (selectedClusterIndex !== null && activeImageClusters[selectedClusterIndex]) {
+                    activeImageClusters[selectedClusterIndex].targetHex = colorHex;
+                    renderColorMapUI();
+                    updateQuantizedImageOnCanvas(active);
                 }
             } else {
-                active.set('fill', color);
+                active.set('fill', colorHex);
                 canvas.renderAll();
                 if (previewActive) renderStitchPreview();
             }
         }
 
-        // REAL EMBROIDERY TATAMI & SATIN STITCH GENERATOR
-        function generateEmbroideryStitches() {
+        // EMBROIDERY STITCH TRACER & DENSITY GENERATOR
+        function generateStitches() {
             const objects = canvas.getObjects();
             if (objects.length === 0) return [];
 
-            const pxToDeciMM = 254 / DPI; // Converts pixels to 0.1mm units
+            const pxToDeciMM = 254 / DPI;
             const centerPxX = canvas.width / 2;
             const centerPxY = canvas.height / 2;
-
             const colorBlocks = [];
 
             objects.forEach(obj => {
-                // Render object onto separate temp canvas to analyze shapes
                 const tempCanvas = document.createElement('canvas');
                 tempCanvas.width = canvas.width;
                 tempCanvas.height = canvas.height;
@@ -535,97 +622,44 @@
                 staticCanvas.renderAll();
                 tCtx.drawImage(staticCanvas.getElement(), 0, 0);
 
-                const imgData = tCtx.getImageData(0, 0, canvas.width, canvas.height);
-                const data = imgData.data;
+                const imgData = tCtx.getImageData(0, 0, canvas.width, canvas.height).data;
 
-                // Unique color extraction per object
-                const uniqueColors = {};
-                for (let i = 0; i < data.length; i += 16) {
-                    if (data[i + 3] > 128) {
-                        const hex = `#${((1 << 24) + (data[i] << 16) + (data[i+1] << 8) + data[i+2]).toString(16).slice(1)}`;
-                        uniqueColors[hex] = true;
+                // Unique color map for this layer
+                const colorsInObj = {};
+                for (let i = 0; i < imgData.length; i += 16) {
+                    if (imgData[i + 3] > 128) {
+                        const hex = rgbToHex(imgData[i], imgData[i+1], imgData[i+2]);
+                        colorsInObj[hex] = true;
                     }
                 }
 
-                Object.keys(uniqueColors).forEach(colorHex => {
-                    const stitches = [];
+                Object.keys(colorsInObj).forEach(colorHex => {
                     const targetRgb = hexToRgb(colorHex);
+                    const stitches = [];
+                    const rowSpacing = 4; // ~0.4mm stitch density
 
-                    // Create Bounding Box
-                    let minX = canvas.width, maxX = 0, minY = canvas.height, maxY = 0;
-                    for (let y = 0; y < canvas.height; y += 2) {
-                        for (let x = 0; x < canvas.width; x += 2) {
+                    for (let y = 0; y < canvas.height; y += rowSpacing) {
+                        const isEven = (y / rowSpacing) % 2 === 0;
+                        const xStart = isEven ? 0 : canvas.width - 1;
+                        const xEnd = isEven ? canvas.width : -1;
+                        const xStep = isEven ? 3 : -3;
+
+                        for (let x = xStart; isEven ? x < xEnd : x > xEnd; x += xStep) {
                             const idx = (y * canvas.width + x) * 4;
-                            if (data[idx + 3] > 128) {
-                                const dr = Math.abs(data[idx] - targetRgb.r);
-                                const dg = Math.abs(data[idx+1] - targetRgb.g);
-                                const db = Math.abs(data[idx+2] - targetRgb.b);
-                                if (dr + dg + db < 50) {
-                                    if (x < minX) minX = x;
-                                    if (x > maxX) maxX = x;
-                                    if (y < minY) minY = y;
-                                    if (y > maxY) maxY = y;
-                                }
-                            }
-                        }
-                    }
+                            if (imgData[idx + 3] > 128) {
+                                const dr = Math.abs(imgData[idx] - targetRgb.r);
+                                const dg = Math.abs(imgData[idx+1] - targetRgb.g);
+                                const db = Math.abs(imgData[idx+2] - targetRgb.b);
 
-                    if (minX >= maxX || minY >= maxY) return;
-
-                    // 1. TATAMI ANGLED FILL STITCHES (45 Degree Staggered Grid)
-                    const rowSpacing = 3.5; // ~0.4mm stitch density spacing
-                    const maxStitchLen = 12; // ~3.5mm max stitch segment length
-                    let rowIndex = 0;
-
-                    for (let y = minY; y <= maxY; y += rowSpacing) {
-                        const isEven = rowIndex % 2 === 0;
-                        const xStart = isEven ? minX : maxX;
-                        const xEnd = isEven ? maxX : minX;
-                        const xStep = isEven ? 2 : -2;
-
-                        let inSegment = false;
-                        let lineStart = null;
-                        let segmentPoints = [];
-
-                        for (let x = xStart; isEven ? x <= xEnd : x >= xEnd; x += xStep) {
-                            const idx = (Math.floor(y) * canvas.width + Math.floor(x)) * 4;
-                            const isMatch = data[idx + 3] > 128 && 
-                                           (Math.abs(data[idx] - targetRgb.r) + 
-                                            Math.abs(data[idx+1] - targetRgb.g) + 
-                                            Math.abs(data[idx+2] - targetRgb.b)) < 50;
-
-                            if (isMatch) {
-                                if (!inSegment) {
-                                    inSegment = true;
-                                    lineStart = { x, y };
-                                    segmentPoints.push(lineStart);
-                                } else {
-                                    const lastPt = segmentPoints[segmentPoints.length - 1];
-                                    const dist = Math.hypot(x - lastPt.x, y - lastPt.y);
-                                    // Add staggered Tatami penetration points
-                                    const offset = (rowIndex % 3) * (maxStitchLen / 3);
-                                    if (dist >= (maxStitchLen + offset)) {
-                                        segmentPoints.push({ x, y });
-                                    }
-                                }
-                            } else {
-                                if (inSegment) {
-                                    segmentPoints.push({ x: x - xStep, y });
-                                    inSegment = false;
-                                    // Convert points to 0.1mm coordinates
-                                    segmentPoints.forEach(pt => {
-                                        stitches.push({
-                                            x: Math.round((pt.x - centerPxX) * pxToDeciMM),
-                                            y: Math.round((pt.y - centerPxY) * pxToDeciMM),
-                                            screenX: pt.x,
-                                            screenY: pt.y
-                                        });
+                                if (dr + dg + db < 30) {
+                                    stitches.push({
+                                        x: Math.round((x - centerPxX) * pxToDeciMM),
+                                        y: Math.round((y - centerPxY) * pxToDeciMM),
+                                        screenX: x, screenY: y
                                     });
-                                    segmentPoints = [];
                                 }
                             }
                         }
-                        rowIndex++;
                     }
 
                     if (stitches.length > 0) {
@@ -637,7 +671,7 @@
             return colorBlocks;
         }
 
-        // REALISTIC 3D THREAD PREVIEW RENDERER
+        // REALISTIC 3D THREAD PREVIEW
         let previewActive = false;
         document.getElementById('toggle-preview-btn').addEventListener('click', () => {
             previewActive = !previewActive;
@@ -647,75 +681,49 @@
 
         function renderStitchPreview() {
             overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-            
-            // Draw Fabric Texture Background
-            overlayCtx.fillStyle = '#1e1e1e';
+            overlayCtx.fillStyle = '#121212';
             overlayCtx.fillRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-            const blocks = generateEmbroideryStitches();
+            const blocks = generateStitches();
 
             blocks.forEach(block => {
                 const stitches = block.stitches;
                 if (stitches.length < 2) return;
 
-                // Pass 1: Thread Shadow for Depth
-                overlayCtx.strokeStyle = 'rgba(0,0,0,0.6)';
-                overlayCtx.lineWidth = 2.5;
+                // Pass 1: Drop Shadow
+                overlayCtx.strokeStyle = 'rgba(0,0,0,0.5)';
+                overlayCtx.lineWidth = 2.2;
                 overlayCtx.beginPath();
                 for (let i = 0; i < stitches.length - 1; i++) {
-                    const p1 = stitches[i];
-                    const p2 = stitches[i+1];
-                    if (Math.hypot(p2.screenX - p1.screenX, p2.screenY - p1.screenY) < 20) {
-                        overlayCtx.moveTo(p1.screenX + 1, p1.screenY + 1.5);
-                        overlayCtx.lineTo(p2.screenX + 1, p2.screenY + 1.5);
+                    const p1 = stitches[i], p2 = stitches[i+1];
+                    if (Math.hypot(p2.screenX - p1.screenX, p2.screenY - p1.screenY) < 15) {
+                        overlayCtx.moveTo(p1.screenX + 1, p1.screenY + 1);
+                        overlayCtx.lineTo(p2.screenX + 1, p2.screenY + 1);
                     }
                 }
                 overlayCtx.stroke();
 
-                // Pass 2: Main Thread Color Strand
+                // Pass 2: Main Thread
                 overlayCtx.strokeStyle = block.color;
                 overlayCtx.lineWidth = 1.8;
                 overlayCtx.lineCap = 'round';
                 overlayCtx.beginPath();
                 for (let i = 0; i < stitches.length - 1; i++) {
-                    const p1 = stitches[i];
-                    const p2 = stitches[i+1];
-                    if (Math.hypot(p2.screenX - p1.screenX, p2.screenY - p1.screenY) < 20) {
+                    const p1 = stitches[i], p2 = stitches[i+1];
+                    if (Math.hypot(p2.screenX - p1.screenX, p2.screenY - p1.screenY) < 15) {
                         overlayCtx.moveTo(p1.screenX, p1.screenY);
                         overlayCtx.lineTo(p2.screenX, p2.screenY);
                     }
                 }
                 overlayCtx.stroke();
-
-                // Pass 3: Thread Sheen & Needle Punctures
-                overlayCtx.strokeStyle = 'rgba(255,255,255,0.25)';
-                overlayCtx.lineWidth = 0.6;
-                overlayCtx.beginPath();
-                for (let i = 0; i < stitches.length - 1; i++) {
-                    const p1 = stitches[i];
-                    const p2 = stitches[i+1];
-                    if (Math.hypot(p2.screenX - p1.screenX, p2.screenY - p1.screenY) < 20) {
-                        overlayCtx.moveTo(p1.screenX - 0.3, p1.screenY - 0.3);
-                        overlayCtx.lineTo(p2.screenX - 0.3, p2.screenY - 0.3);
-                    }
-                }
-                overlayCtx.stroke();
-
-                // Needle Hole Points
-                overlayCtx.fillStyle = '#0d0d0d';
-                stitches.forEach(pt => {
-                    overlayCtx.beginPath();
-                    overlayCtx.arc(pt.screenX, pt.screenY, 0.8, 0, Math.PI * 2);
-                    overlayCtx.fill();
-                });
             });
         }
 
         // BINARY BROTHER .PES ENCODER
         document.getElementById('export-pes-btn').addEventListener('click', () => {
-            const blocks = generateEmbroideryStitches();
+            const blocks = generateStitches();
             if (blocks.length === 0) {
-                alert("Please add artwork or text to export.");
+                alert("Please import artwork or text to export.");
                 return;
             }
 
@@ -723,7 +731,7 @@
             const blob = new Blob([pesBytes], { type: "application/x-embroidery" });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            link.download = "embroidered_design.pes";
+            link.download = "embroidery_design.pes";
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -749,7 +757,7 @@
                 });
             });
 
-            pecStitches.push(0xFF, 0x00); // End of pattern
+            pecStitches.push(0xFF, 0x00); // End of Pattern
 
             const pecHeader = new Uint8Array(512);
             const label = "LA:SHIFTY        ";
@@ -790,6 +798,15 @@
             }
             encodeVal(dx, isJump);
             encodeVal(dy, isJump);
+        }
+
+        function hexToRgb(hex) {
+            const num = parseInt(hex.replace('#',''), 16);
+            return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+        }
+
+        function rgbToHex(r, g, b) {
+            return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
         }
 
         updateHoopSize();
