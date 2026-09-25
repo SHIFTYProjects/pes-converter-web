@@ -4,92 +4,308 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PES Embroidery Studio</title>
-    <!-- Load Fabric.js for Drag/Drop/Text/Rotation capabilities -->
+    <!-- Fabric.js for interactive canvas design -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; background: #121212; color: #fff; margin: 0; padding: 20px; display: flex; gap: 20px; }
-        #controls { width: 300px; background: #1e1e1e; padding: 20px; border-radius: 8px; display: flex; flex-direction: column; gap: 15px; }
-        #canvas-container { flex-grow: 1; display: flex; justify-content: center; align-items: center; background: #2a2a2a; border-radius: 8px; padding: 20px; }
-        .hoop-bounds { border: 2px dashed #00a8ff; background: #ffffff; }
-        button, select, input { padding: 10px; background: #333; color: white; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #00a8ff; }
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; gap: 20px; height: 100vh; overflow: hidden; }
+        
+        /* Sidebar Controls */
+        #sidebar { width: 340px; background: #1e1e1e; padding: 20px; border-radius: 8px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; max-height: calc(100vh - 40px); border: 1px solid #333; }
+        h2 { margin: 0 0 5px 0; font-size: 1.3rem; color: #00a8ff; }
+        h3 { margin: 10px 0 5px 0; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 1px; color: #888; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        
+        .control-group { display: flex; flex-direction: column; gap: 6px; }
+        .row { display: flex; gap: 10px; align-items: center; }
+        .row > * { flex: 1; }
+
+        label { font-size: 0.85rem; color: #aaa; }
+        button, select, input[type="text"], input[type="number"] { padding: 8px 10px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; font-size: 0.9rem; }
+        button { cursor: pointer; background: #333; transition: 0.2s; font-weight: 600; }
+        button:hover { background: #00a8ff; color: #fff; border-color: #00a8ff; }
+        
+        /* Swatches */
+        .palette { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+        .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #444; cursor: pointer; transition: 0.1s; }
+        .swatch:hover, .swatch.active { transform: scale(1.15); border-color: #fff; }
+
+        /* Workspace Area & Rulers */
+        #workspace { flex-grow: 1; display: flex; flex-direction: column; background: #181818; border-radius: 8px; padding: 10px; border: 1px solid #333; position: relative; overflow: auto; }
+        #canvas-area { position: relative; margin: auto; display: grid; grid-template-columns: 30px 1fr; grid-template-rows: 30px 1fr; }
+        
+        #ruler-top { grid-column: 2; grid-row: 1; background: #222; border-bottom: 1px solid #444; }
+        #ruler-left { grid-column: 1; grid-row: 2; background: #222; border-right: 1px solid #444; }
+        #ruler-corner { grid-column: 1; grid-row: 1; background: #1a1a1a; border-right: 1px solid #444; border-bottom: 1px solid #444; }
+        
+        #canvas-wrapper { grid-column: 2; grid-row: 2; position: relative; background: #ffffff; border: 2px dashed #00a8ff; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        #stitch-preview-canvas { position: absolute; top: 0; left: 0; pointer-events: none; display: none; z-index: 10; }
+
+        .unit-tag { font-size: 0.75rem; color: #888; margin-left: 2px; }
     </style>
 </head>
 <body>
 
-    <div id="controls">
+    <!-- SIDEBAR CONTROL PANEL -->
+    <div id="sidebar">
         <h2>PES Studio</h2>
-        
-        <!-- Hoop Selection -->
-        <label>Hoop Size:</label>
-        <select id="hoop-select">
-            <option value="4x4">4" x 4" (100mm x 100mm)</option>
-            <option value="5x7">5" x 7" (130mm x 180mm)</option>
-            <option value="6x10">6" x 10" (160mm x 260mm)</option>
-        </select>
 
-        <!-- Artwork Upload -->
-        <label>Add Artwork:</label>
-        <input type="file" id="img-upload" accept="image/*">
+        <!-- HOOP CONFIGURATION -->
+        <h3>1. Hoop & Orientation</h3>
+        <div class="control-group">
+            <label>Hoop Size Preset:</label>
+            <select id="hoop-select">
+                <option value="4x4">4" x 4" (100 x 100 mm)</option>
+                <option value="5x7" selected>5" x 7" (130 x 180 mm)</option>
+                <option value="6x10">6" x 10" (160 x 260 mm)</option>
+                <option value="8x8">8" x 8" (200 x 200 mm)</option>
+                <option value="8x12">8" x 12" (200 x 300 mm)</option>
+                <option value="9.5x14">9.5" x 14" (240 x 360 mm)</option>
+                <option value="custom">Custom Size...</option>
+            </select>
+        </div>
 
-        <!-- Text Engine Controls -->
-        <label>Add Text:</label>
-        <input type="text" id="text-input" placeholder="Enter text (e.g. SHIFTY)">
-        <select id="font-select">
-            <option value="Arial">Arial</option>
-            <option value="Impact">Impact</option>
-            <option value="Courier New">Courier New</option>
-            <option value="Trebuchet MS">Trebuchet MS</option>
-        </select>
-        <button id="add-text-btn">Add Text Object</button>
+        <div id="custom-hoop-inputs" class="row" style="display: none;">
+            <div>
+                <label>Width (in):</label>
+                <input type="number" id="custom-w" value="6" step="0.5" min="1">
+            </div>
+            <div>
+                <label>Height (in):</label>
+                <input type="number" id="custom-h" value="6" step="0.5" min="1">
+            </div>
+        </div>
 
-        <!-- Color Management -->
-        <label>Thread Color Palette:</label>
-        <input type="color" id="thread-color" value="#00a8ff">
-        <button id="apply-color-btn">Assign Color to Selected</button>
+        <div class="control-group">
+            <label>Orientation:</label>
+            <div class="row">
+                <button id="orient-portrait" style="background:#00a8ff;">Portrait</button>
+                <button id="orient-landscape">Landscape</button>
+            </div>
+        </div>
 
-        <hr style="border-color: #444; width: 100%;">
-        
-        <button id="generate-pes-btn" style="background: #00a8ff; font-weight: bold;">Export PES File</button>
+        <!-- ARTWORK & TEXT -->
+        <h3>2. Add Objects</h3>
+        <div class="control-group">
+            <input type="file" id="img-upload" accept="image/*" style="display:none;">
+            <button onclick="document.getElementById('img-upload').click()">Upload Graphic (PNG/JPG)</button>
+        </div>
+        <div class="control-group" style="margin-top: 5px;">
+            <div class="row">
+                <input type="text" id="text-input" placeholder="e.g. SHIFTY">
+                <button id="add-text-btn">Add Text</button>
+            </div>
+            <select id="font-select">
+                <option value="Arial">Arial</option>
+                <option value="Impact">Impact</option>
+                <option value="Courier New">Courier New</option>
+                <option value="Trebuchet MS">Trebuchet MS</option>
+                <option value="Georgia">Georgia</option>
+            </select>
+        </div>
+
+        <!-- OBJECT PROPERTIES & SIZE -->
+        <h3>3. Selected Object Controls</h3>
+        <div class="control-group">
+            <label>Dimensions (Inches):</label>
+            <div class="row">
+                <div>
+                    <label>W:</label>
+                    <input type="number" id="obj-w" step="0.1" disabled>
+                </div>
+                <div>
+                    <label>H:</label>
+                    <input type="number" id="obj-h" step="0.1" disabled>
+                </div>
+            </div>
+            <div class="row" style="margin-top: 4px;">
+                <label><input type="checkbox" id="aspect-lock" checked> Lock Aspect Ratio</label>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Stitch Type:</label>
+            <select id="stitch-type">
+                <option value="tatami">Tatami (Solid Area Fill)</option>
+                <option value="satin">Satin (Columns & Borders)</option>
+                <option value="running">Running Stitch (Outline)</option>
+            </select>
+        </div>
+
+        <!-- THREAD COLORS -->
+        <h3>4. Thread Color Palette</h3>
+        <div class="control-group">
+            <div class="palette" id="thread-palette">
+                <!-- Standard Thread Swatches -->
+                <div class="swatch active" style="background:#003DA5;" data-color="#003DA5" title="Royal Blue"></div>
+                <div class="swatch" style="background:#00205B;" data-color="#00205B" title="Navy"></div>
+                <div class="swatch" style="background:#E31B23;" data-color="#E31B23" title="Red"></div>
+                <div class="swatch" style="background:#00843D;" data-color="#00843D" title="Emerald Green"></div>
+                <div class="swatch" style="background:#FFD100;" data-color="#FFD100" title="Yellow"></div>
+                <div class="swatch" style="background:#FF6700;" data-color="#FF6700" title="Orange"></div>
+                <div class="swatch" style="background:#685BC7;" data-color="#685BC7" title="Purple"></div>
+                <div class="swatch" style="background:#000000;" data-color="#000000" title="Black"></div>
+                <div class="swatch" style="background:#FFFFFF; border-color:#aaa;" data-color="#FFFFFF" title="White"></div>
+            </div>
+            <div class="row" style="margin-top: 8px;">
+                <label>Custom Color:</label>
+                <input type="color" id="custom-thread-color" value="#003DA5">
+            </div>
+        </div>
+
+        <!-- PREVIEW & EXPORT -->
+        <h3>5. Output</h3>
+        <button id="toggle-preview-btn" style="background: #2e7d32;">Toggle Stitch Preview</button>
+        <button id="export-pes-btn" style="background: #00a8ff; font-weight: bold; margin-top: 5px;">Export .PES File</button>
     </div>
 
-    <div id="canvas-container">
-        <!-- Interactive Fabric.js Canvas -->
-        <div class="hoop-bounds" id="hoop-wrapper">
-            <canvas id="embroidery-canvas"></canvas>
+    <!-- MAIN WORKSPACE / CANVAS AREA -->
+    <div id="workspace">
+        <div id="canvas-area">
+            <div id="ruler-corner"></div>
+            <canvas id="ruler-top"></canvas>
+            <canvas id="ruler-left"></canvas>
+
+            <div id="canvas-wrapper">
+                <canvas id="main-canvas"></canvas>
+                <!-- Overlay Canvas for Drawing Needle Stitch Simulation -->
+                <canvas id="stitch-preview-canvas"></canvas>
+            </div>
         </div>
     </div>
 
     <script>
-        // Initialize Interactive Canvas
-        const canvas = new fabric.Canvas('embroidery-canvas');
+        const DPI = 96; // Standard Web Display DPI (96 pixels = 1 inch)
         
-        // Define Hoop Dimensions (Pixels mapped to relative sizes)
-        const hoopSizes = {
-            '4x4': { width: 400, height: 400 },
-            '5x7': { width: 500, height: 700 },
-            '6x10': { width: 600, height: 1000 }
+        // Hoop Presets in Inches
+        const hoopPresets = {
+            '4x4': { w: 4, h: 4 },
+            '5x7': { w: 5, h: 7 },
+            '6x10': { w: 6, h: 10 },
+            '8x8': { w: 8, h: 8 },
+            '8x12': { w: 8, h: 12 },
+            '9.5x14': { w: 9.5, h: 14 }
         };
 
-        function setHoopSize(sizeKey) {
-            const size = hoopSizes[sizeKey];
-            canvas.setWidth(size.width);
-            canvas.setHeight(size.height);
-            document.getElementById('hoop-wrapper').style.width = size.width + 'px';
-            document.getElementById('hoop-wrapper').style.height = size.height + 'px';
+        let currentHoop = { w: 5, h: 7 };
+        let isLandscape = false;
+        let activeThreadColor = '#003DA5';
+
+        // Fabric.js Canvas Init
+        const canvas = new fabric.Canvas('main-canvas', { selection: true });
+        const overlayCanvas = document.getElementById('stitch-preview-canvas');
+        const overlayCtx = overlayCanvas.getContext('2d');
+
+        // Update Hoop & Canvas Dimensions
+        function updateHoopSize() {
+            let widthInches = currentHoop.w;
+            let heightInches = currentHoop.h;
+
+            if (isLandscape) {
+                [widthInches, heightInches] = [Math.max(widthInches, heightInches), Math.min(widthInches, heightInches)];
+            } else {
+                [widthInches, heightInches] = [Math.min(widthInches, heightInches), Math.max(widthInches, heightInches)];
+            }
+
+            const pxW = widthInches * DPI;
+            const pxH = heightInches * DPI;
+
+            canvas.setWidth(pxW);
+            canvas.setHeight(pxH);
+            overlayCanvas.width = pxW;
+            overlayCanvas.height = pxH;
+
+            const wrapper = document.getElementById('canvas-wrapper');
+            wrapper.style.width = pxW + 'px';
+            wrapper.style.height = pxH + 'px';
+
+            drawRulers(pxW, pxH, widthInches, heightInches);
         }
-        setHoopSize('4x4');
 
-        document.getElementById('hoop-select').addEventListener('change', (e) => setHoopSize(e.target.value));
+        // Draw Interactive Inches Rulers
+        function drawRulers(pxW, pxH, inW, inH) {
+            const rTop = document.getElementById('ruler-top');
+            const rLeft = document.getElementById('ruler-left');
+            rTop.width = pxW; rTop.height = 30;
+            rLeft.width = 30; rLeft.height = pxH;
 
-        // Add Uploaded Image (Draggable, Scalable, Rotatable)
+            const ctxT = rTop.getContext('2d');
+            const ctxL = rLeft.getContext('2d');
+
+            ctxT.fillStyle = '#222'; ctxT.fillRect(0,0,pxW,30);
+            ctxL.fillStyle = '#222'; ctxL.fillRect(0,0,30,pxH);
+
+            ctxT.fillStyle = '#aaa'; ctxT.strokeStyle = '#666'; ctxT.font = '10px sans-serif';
+            ctxL.fillStyle = '#aaa'; ctxL.strokeStyle = '#666'; ctxL.font = '10px sans-serif';
+
+            // Top Ruler Ticks (Every 0.25 inch)
+            for (let x = 0; x <= pxW; x += DPI / 4) {
+                const inchVal = (x / DPI).toFixed(2);
+                const isFullInch = x % DPI === 0;
+                const tickH = isFullInch ? 15 : (x % (DPI/2) === 0 ? 10 : 5);
+
+                ctxT.beginPath(); ctxT.moveTo(x, 30); ctxT.lineTo(x, 30 - tickH); ctxT.stroke();
+                if (isFullInch && x < pxW) ctxT.fillText(`${Math.round(x/DPI)}"`, x + 3, 14);
+            }
+
+            // Left Ruler Ticks
+            for (let y = 0; y <= pxH; y += DPI / 4) {
+                const isFullInch = y % DPI === 0;
+                const tickW = isFullInch ? 15 : (y % (DPI/2) === 0 ? 10 : 5);
+
+                ctxL.beginPath(); ctxL.moveTo(30, y); ctxL.lineTo(30 - tickW, y); ctxL.stroke();
+                if (isFullInch && y < pxH) ctxL.fillText(`${Math.round(y/DPI)}"`, 4, y + 12);
+            }
+        }
+
+        // Hoop Select Handler
+        document.getElementById('hoop-select').addEventListener('change', (e) => {
+            const val = e.target.value;
+            const customBox = document.getElementById('custom-hoop-inputs');
+            if (val === 'custom') {
+                customBox.style.display = 'flex';
+                currentHoop = { w: parseFloat(document.getElementById('custom-w').value), h: parseFloat(document.getElementById('custom-h').value) };
+            } else {
+                customBox.style.display = 'none';
+                currentHoop = { ...hoopPresets[val] };
+            }
+            updateHoopSize();
+        });
+
+        // Custom Hoop Input Handler
+        ['custom-w', 'custom-h'].forEach(id => {
+            document.getElementById(id).addEventListener('input', () => {
+                if (document.getElementById('hoop-select').value === 'custom') {
+                    currentHoop.w = parseFloat(document.getElementById('custom-w').value) || 4;
+                    currentHoop.h = parseFloat(document.getElementById('custom-h').value) || 4;
+                    updateHoopSize();
+                }
+            });
+        });
+
+        // Orientation Handler
+        document.getElementById('orient-portrait').addEventListener('click', function() {
+            isLandscape = false;
+            this.style.background = '#00a8ff';
+            document.getElementById('orient-landscape').style.background = '#333';
+            updateHoopSize();
+        });
+
+        document.getElementById('orient-landscape').addEventListener('click', function() {
+            isLandscape = true;
+            this.style.background = '#00a8ff';
+            document.getElementById('orient-portrait').style.background = '#333';
+            updateHoopSize();
+        });
+
+        // Image Upload
         document.getElementById('img-upload').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
             const reader = new FileReader();
             reader.onload = function(f) {
                 fabric.Image.fromURL(f.target.result, function(img) {
-                    img.scaleToWidth(200);
+                    img.scaleToWidth(2 * DPI); // Default 2 inches wide
+                    img.set({ stitchType: 'tatami' });
                     canvas.add(img);
                     canvas.setActiveObject(img);
                 });
@@ -97,52 +313,140 @@
             reader.readAsDataURL(file);
         });
 
-        // Add Interactive Text
+        // Add Text
         document.getElementById('add-text-btn').addEventListener('click', () => {
             const textVal = document.getElementById('text-input').value || 'SHIFTY';
             const fontFamily = document.getElementById('font-select').value;
-            const color = document.getElementById('thread-color').value;
 
             const text = new fabric.Text(textVal, {
-                left: 100,
-                top: 100,
+                left: 50, top: 50,
                 fontFamily: fontFamily,
-                fill: color,
-                fontSize: 40
+                fill: activeThreadColor,
+                fontSize: 40,
+                stitchType: 'satin'
             });
             canvas.add(text);
             canvas.setActiveObject(text);
         });
 
-        // Color Assignee
-        document.getElementById('apply-color-btn').addEventListener('click', () => {
-            const activeObj = canvas.getActiveObject();
-            if (activeObj) {
-                const color = document.getElementById('thread-color').value;
-                activeObj.set('fill', color);
+        // Sync Object Dimension Readouts (Inches)
+        function updateObjectInputs() {
+            const active = canvas.getActiveObject();
+            const wInput = document.getElementById('obj-w');
+            const hInput = document.getElementById('obj-h');
+
+            if (active) {
+                wInput.disabled = false;
+                hInput.disabled = false;
+                wInput.value = (active.getBoundingRect().width / DPI).toFixed(2);
+                hInput.value = (active.getBoundingRect().height / DPI).toFixed(2);
+                if (active.stitchType) {
+                    document.getElementById('stitch-type').value = active.stitchType;
+                }
+            } else {
+                wInput.disabled = true; hInput.disabled = true;
+                wInput.value = ''; hInput.value = '';
+            }
+        }
+
+        canvas.on('selection:created', updateObjectInputs);
+        canvas.on('selection:updated', updateObjectInputs);
+        canvas.on('selection:cleared', updateObjectInputs);
+        canvas.on('object:modified', updateObjectInputs);
+
+        // Edit Size from Input Fields
+        document.getElementById('obj-w').addEventListener('change', function() {
+            const active = canvas.getActiveObject();
+            if (!active) return;
+            const newW = parseFloat(this.value) * DPI;
+            const lockAspect = document.getElementById('aspect-lock').checked;
+
+            if (lockAspect) {
+                active.scaleToWidth(newW);
+            } else {
+                active.set('scaleX', newW / active.width);
+            }
+            canvas.renderAll();
+            updateObjectInputs();
+        });
+
+        document.getElementById('obj-h').addEventListener('change', function() {
+            const active = canvas.getActiveObject();
+            if (!active) return;
+            const newH = parseFloat(this.value) * DPI;
+            const lockAspect = document.getElementById('aspect-lock').checked;
+
+            if (lockAspect) {
+                active.scaleToHeight(newH);
+            } else {
+                active.set('scaleY', newH / active.height);
+            }
+            canvas.renderAll();
+            updateObjectInputs();
+        });
+
+        // Stitch Type Selector
+        document.getElementById('stitch-type').addEventListener('change', function() {
+            const active = canvas.getActiveObject();
+            if (active) {
+                active.stitchType = this.value;
+            }
+        });
+
+        // Palette Color Selection
+        document.querySelectorAll('.swatch').forEach(swatch => {
+            swatch.addEventListener('click', function() {
+                document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+                this.classList.add('active');
+                activeThreadColor = this.dataset.color;
+                applyColorToActive(activeThreadColor);
+            });
+        });
+
+        document.getElementById('custom-thread-color').addEventListener('input', function() {
+            activeThreadColor = this.value;
+            applyColorToActive(activeThreadColor);
+        });
+
+        function applyColorToActive(color) {
+            const active = canvas.getActiveObject();
+            if (active) {
+                active.set('fill', color);
                 canvas.renderAll();
             }
+        }
+
+        // Stitch Previewer Engine
+        let previewActive = false;
+        document.getElementById('toggle-preview-btn').addEventListener('click', () => {
+            previewActive = !previewActive;
+            overlayCanvas.style.display = previewActive ? 'block' : 'none';
+            if (previewActive) renderStitchPreview();
         });
 
-        // Consolidated Export Pipeline
-        document.getElementById('generate-pes-btn').addEventListener('click', () => {
+        function renderStitchPreview() {
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
             const objects = canvas.getObjects();
-            if (objects.length === 0) {
-                alert('Add artwork or text to the canvas first.');
-                return;
-            }
 
-            // Group Objects by Thread Color to eliminate redundant machine stops
-            const colorBlocks = {};
+            overlayCtx.lineWidth = 1.5;
+            
             objects.forEach(obj => {
-                const color = obj.fill || '#000000';
-                if (!colorBlocks[color]) colorBlocks[color] = [];
-                colorBlocks[color].push(obj);
-            });
+                overlayCtx.strokeStyle = obj.fill || '#000';
+                const bounds = obj.getBoundingRect();
 
-            console.log("Consolidated Color Blocks:", Object.keys(colorBlocks));
-            alert(`Ready to digitize ${Object.keys(colorBlocks).length} distinct thread color block(s).`);
-        });
+                // Simple simulated thread lines for previewing
+                overlayCtx.beginPath();
+                const step = 4; // Stitch density line spacing
+                for (let y = bounds.top; y < bounds.top + bounds.height; y += step) {
+                    overlayCtx.moveTo(bounds.left, y);
+                    overlayCtx.lineTo(bounds.left + bounds.width, y + (Math.random() * 2 - 1));
+                }
+                overlayCtx.stroke();
+            });
+        }
+
+        // Initial setup
+        updateHoopSize();
     </script>
 </body>
 </html>
