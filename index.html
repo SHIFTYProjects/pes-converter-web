@@ -3,55 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PES Embroidery Studio - Vector Tracing</title>
-    <!-- Google Fonts Library (Auto-loaded for Chrome) -->
+    <title>PES Embroidery Studio - Vector Geometry Digitizer</title>
+    <!-- Google Fonts Library -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Anton&family=Lobster&family=Montserrat:wght@400;700&family=Open+Sans:wght@400;700&family=Oswald:wght@500;700&family=Pacifico&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
     
-    <!-- Fabric.js for interactive canvas design -->
+    <!-- Fabric.js & ImageTracer.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
-    <!-- ImageTracer.js for Raster-to-Vector conversion -->
     <script src="https://cdn.jsdelivr.net/npm/imagetracerjs@1.2.6/imagetracer_v1.2.6.js"></script>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 15px; display: flex; height: 100vh; overflow: hidden; user-select: none; }
         
-        /* Resizable Sidebar Controls */
-        #sidebar { width: 420px; min-width: 320px; max-width: 800px; background: #1e1e1e; padding: 18px; border-radius: 8px 0 0 8px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; height: calc(100vh - 30px); border: 1px solid #333; }
+        #sidebar { width: 440px; min-width: 340px; max-width: 800px; background: #1e1e1e; padding: 18px; border-radius: 8px 0 0 8px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; height: calc(100vh - 30px); border: 1px solid #333; }
         
-        /* Draggable Resizer Bar */
         #resizer { width: 8px; background: #282828; cursor: col-resize; transition: background 0.2s; border-top: 1px solid #333; border-bottom: 1px solid #333; display: flex; align-items: center; justify-content: center; }
         #resizer:hover, #resizer.active { background: #00a8ff; }
         #resizer::after { content: "┊"; color: #888; font-size: 14px; }
 
         h2 { margin: 0 0 2px 0; font-size: 1.25rem; color: #00a8ff; }
-        h3 { margin: 8px 0 4px 0; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 1px; color: #888; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        h3 { margin: 8px 0 4px 0; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 1px; color: #00a8ff; border-bottom: 1px solid #333; padding-bottom: 4px; }
         
         .control-group { display: flex; flex-direction: column; gap: 6px; }
         .row { display: flex; gap: 8px; align-items: center; }
         .row > * { flex: 1; }
 
-        label { font-size: 0.8rem; color: #aaa; }
+        label { font-size: 0.78rem; color: #aaa; display: flex; justify-content: space-between; }
         button, select, input[type="text"], input[type="number"], input[type="range"] { padding: 7px 9px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; font-size: 0.85rem; }
-        button { cursor: pointer; background: #333; transition: 0.2s; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 4px; }
+        button { cursor: pointer; background: #333; transition: 0.2s; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid #444; }
         button:hover { background: #00a8ff; color: #fff; border-color: #00a8ff; }
         button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: #ccc; cursor: pointer; }
+        .checkbox-row input { cursor: pointer; }
         
-        /* 2 Rows of 10 Swatches Grid */
         .palette { display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; margin-top: 4px; }
         .swatch { aspect-ratio: 1; border-radius: 50%; border: 2px solid #444; cursor: pointer; transition: transform 0.1s; position: relative; }
         .swatch:hover, .swatch.active { transform: scale(1.2); border-color: #00a8ff; z-index: 2; }
 
-        .color-map-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; background: #161616; padding: 8px; border-radius: 6px; border: 1px solid #333; }
+        .color-map-list { display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow-y: auto; background: #161616; padding: 8px; border-radius: 6px; border: 1px solid #333; }
         .color-map-row { display: flex; align-items: center; justify-content: space-between; background: #222; padding: 6px 10px; border-radius: 4px; border: 1px solid #333; cursor: pointer; }
         .color-map-row.selected { border-color: #00a8ff; background: #2a2a2a; }
         .color-preview-pair { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
 
-        /* Workspace Area & Rulers */
         #workspace { flex-grow: 1; display: flex; flex-direction: column; background: #141414; border-radius: 0 8px 8px 0; padding: 10px; border: 1px solid #333; border-left: none; position: relative; overflow: hidden; }
-        
-        /* Top Canvas Toolbar */
         #canvas-toolbar { display: flex; align-items: center; justify-content: space-between; background: #1e1e1e; padding: 6px 12px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #333; }
         .toolbar-group { display: flex; align-items: center; gap: 8px; }
 
@@ -62,7 +58,6 @@
         #ruler-left { grid-column: 1; grid-row: 2; background: #222; border-right: 1px solid #444; }
         #ruler-corner { grid-column: 1; grid-row: 1; background: #1a1a1a; border-right: 1px solid #444; border-bottom: 1px solid #444; }
         
-        /* Transparent Checkerboard Canvas Wrapper */
         #canvas-wrapper { 
             grid-column: 2; grid-row: 2; position: relative; 
             background-color: #ffffff;
@@ -77,19 +72,19 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
             transform-origin: 0 0;
         }
-        #stitch-preview-canvas { position: absolute; top: 0; left: 0; pointer-events: none; display: none; z-index: 10; background: #1a1a1a; }
+        #stitch-preview-canvas { position: absolute; top: 0; left: 0; pointer-events: none; display: none; z-index: 10; background: #121212; }
+        .stats-badge { font-size: 0.75rem; background: #2a2a2a; border: 1px solid #444; padding: 4px 8px; border-radius: 4px; color: #00a8ff; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <!-- RESIZABLE SIDEBAR CONTROL PANEL -->
     <div id="sidebar">
         <div class="row" style="justify-content: space-between; align-items: center;">
             <h2>PES Embroidery Studio</h2>
             <button id="btn-undo" style="background:#2a2a2a; border-color:#00a8ff; padding: 4px 10px;" title="Undo Action (Ctrl+Z)" disabled>↶ Undo</button>
         </div>
 
-        <!-- HOOP CONFIGURATION -->
+        <!-- 1. HOOP & ORIENTATION -->
         <h3>1. Hoop & Orientation</h3>
         <div class="control-group">
             <label>Hoop Size Preset:</label>
@@ -99,35 +94,21 @@
                 <option value="6x10">6" x 10" (160 x 260 mm)</option>
                 <option value="8x8">8" x 8" (200 x 200 mm)</option>
                 <option value="8x12">8" x 12" (200 x 300 mm)</option>
-                <option value="9.5x14">9.5" x 14" (240 x 360 mm)</option>
-                <option value="custom">Custom Size...</option>
             </select>
         </div>
 
-        <div id="custom-hoop-inputs" class="row" style="display: none;">
-            <div>
-                <label>Width (in):</label>
-                <input type="number" id="custom-w" value="6" step="0.5" min="1">
-            </div>
-            <div>
-                <label>Height (in):</label>
-                <input type="number" id="custom-h" value="6" step="0.5" min="1">
-            </div>
-        </div>
-
         <div class="control-group">
-            <label>Orientation:</label>
             <div class="row">
                 <button id="orient-portrait" style="background:#00a8ff;">Portrait</button>
                 <button id="orient-landscape">Landscape</button>
             </div>
         </div>
 
-        <!-- ARTWORK & TEXT -->
-        <h3>2. Import Graphic / Text</h3>
+        <!-- 2. ARTWORK & TEXT -->
+        <h3>2. Import Vector / Text</h3>
         <div class="control-group">
             <input type="file" id="img-upload" accept="image/*" style="display:none;">
-            <button onclick="document.getElementById('img-upload').click()">Upload Image (PNG/JPG)</button>
+            <button onclick="document.getElementById('img-upload').click()">Upload Image to Trace (PNG/JPG)</button>
         </div>
         <div class="control-group" style="margin-top: 4px;">
             <div class="row">
@@ -136,104 +117,91 @@
             </div>
             <label style="margin-top:4px;">Font Style:</label>
             <select id="font-select">
-                <!-- Standard Web-Safe Fonts -->
                 <optgroup label="Standard System Fonts">
                     <option value="Arial" selected>Arial</option>
-                    <option value="Arial Black">Arial Black</option>
                     <option value="Impact">Impact</option>
+
                     <option value="Verdana">Verdana</option>
-                    <option value="Tahoma">Tahoma</option>
-                    <option value="Trebuchet MS">Trebuchet MS</option>
-                    <option value="Comic Sans MS">Comic Sans MS</option>
-                    <option value="Times New Roman">Times New Roman</option>
                     <option value="Georgia">Georgia</option>
                     <option value="Courier New">Courier New</option>
                 </optgroup>
-                <!-- Google Fonts -->
                 <optgroup label="Web & Google Fonts">
                     <option value="Roboto">Roboto</option>
-                    <option value="Open Sans">Open Sans</option>
                     <option value="Montserrat">Montserrat</option>
-                    <option value="Oswald">Oswald (Bold Block)</option>
-                    <option value="Anton">Anton (Heavy Display)</option>
+                    <option value="Oswald">Oswald (Bold)</option>
+                    <option value="Anton">Anton (Heavy)</option>
                     <option value="Lobster">Lobster (Script)</option>
                     <option value="Pacifico">Pacifico (Handwritten)</option>
                 </optgroup>
             </select>
         </div>
 
-        <!-- VECTORIZATION & BACKGROUND CLEANUP -->
+        <!-- VECTOR TRACING SECTION -->
         <div id="vector-pipeline-section" style="display: none;">
-            <h3>3. Background Removal & Vector Tracing</h3>
-            
-            <button id="btn-remove-bg" style="background: #ef6c00;">Step 1: Remove Outer Background Only</button>
+            <h3>3. Vector Tracing Engine</h3>
+            <button id="btn-remove-bg" style="background: #ef6c00;">Step 1: Outer Background Fill Cleanup</button>
             
             <div class="control-group" style="margin-top: 6px;">
-                <div class="row" style="justify-content: space-between;">
-                    <label>Max Palette Colors (2 - 20):</label>
-                    <span id="color-count-val" style="font-size:0.8rem; color:#00a8ff; font-weight:bold;">8</span>
-                </div>
-                <input type="range" id="color-count-slider" min="2" max="20" value="8">
+                <label>Max Palette Colors: <span id="color-count-val" style="color:#00a8ff; font-weight:bold;">6</span></label>
+                <input type="range" id="color-count-slider" min="2" max="16" value="6">
             </div>
 
             <div class="control-group">
-                <div class="row" style="justify-content: space-between;">
-                    <label>Noise & Speckle Filter:</label>
-                    <span id="noise-filter-val" style="font-size:0.8rem; color:#00a8ff; font-weight:bold;">Medium</span>
-                </div>
+                <label>Speckle / Noise Filter: <span id="noise-filter-val" style="color:#00a8ff; font-weight:bold;">Medium</span></label>
                 <input type="range" id="noise-slider" min="1" max="10" value="4">
             </div>
 
-            <button id="btn-trace-vector" style="background: #2e7d32; margin-top: 4px;">Step 2: Trace & Quantize Vector Layer</button>
+            <button id="btn-trace-vector" style="background: #2e7d32; margin-top: 4px;">Step 2: Vectorize Paths</button>
         </div>
 
-        <!-- COLOR PALETTE MAPPER -->
+        <!-- COLOR MAPPER -->
         <div id="color-mapping-section" style="display: none;">
-            <h3>4. Vector Color Selector (<span id="vector-color-count">0</span> Colors)</h3>
-            <p style="font-size: 0.75rem; color: #aaa; margin: 0 0 6px 0;">Click a vector color below, then pick a thread color from Section 6 to reassign it in real time:</p>
+            <h3>4. Vector Layer Colors (<span id="vector-color-count">0</span>)</h3>
             <div class="control-group">
-                <div class="row" style="justify-content: space-between; align-items:center;">
-                    <label>Detected Vector Layers:</label>
-                    <button id="btn-start-over" style="background: #c62828; font-size: 0.75rem; padding: 4px 8px;">Reset Artwork</button>
-                </div>
                 <div class="color-map-list" id="color-map-container"></div>
             </div>
         </div>
 
-        <!-- OBJECT CONTROLS & LAYERS -->
-        <h3>5. Selected Layer Controls</h3>
+        <!-- 5. INK/STITCH-LIKE EMBROIDERY PARAMETERS -->
+        <h3>5. Geometry Digitizing Parameters</h3>
         <div class="control-group">
-            <label>Dimensions (Inches):</label>
-            <div class="row">
-                <div>
-                    <label>W:</label>
-                    <input type="number" id="obj-w" step="0.1" disabled>
-                </div>
-                <div>
-                    <label>H:</label>
-                    <input type="number" id="obj-h" step="0.1" disabled>
-                </div>
-            </div>
+            <label>Tatami Fill Density (Row Pitch): <span id="val-density" style="color:#00a8ff;">0.40 mm</span></label>
+            <input type="range" id="param-density" min="0.20" max="1.0" step="0.05" value="0.40">
         </div>
 
         <div class="control-group">
-            <label>Layer Ordering:</label>
-            <div class="row">
-                <button id="btn-up">Move Up ▲</button>
-                <button id="btn-down">Move Down ▼</button>
-            </div>
-            <div class="row" style="margin-top: 4px;">
-                <button id="btn-front">Bring to Front</button>
-                <button id="btn-back">Send to Back</button>
-            </div>
-            <button id="btn-delete" style="background: #c62828; margin-top: 4px;">Delete Selected (Del / Backspace)</button>
+            <label>Tatami Fill Angle: <span id="val-angle" style="color:#00a8ff;">45°</span></label>
+            <input type="range" id="param-angle" min="0" max="180" step="5" value="45">
         </div>
 
-        <!-- THREAD COLORS PALETTE (2 ROWS OF 10) -->
-        <h3>6. Thread Palette (20 Colors)</h3>
+        <div class="control-group">
+            <label>Max Stitch Length: <span id="val-max-length" style="color:#00a8ff;">3.5 mm</span></label>
+            <input type="range" id="param-max-length" min="1.5" max="7.0" step="0.5" value="3.5">
+        </div>
+
+        <div class="control-group">
+            <label>Pull Compensation (Inset/Expand): <span id="val-pull-comp" style="color:#00a8ff;">0.15 mm</span></label>
+            <input type="range" id="param-pull-comp" min="0.0" max="0.5" step="0.05" value="0.15">
+        </div>
+
+        <div class="control-group">
+            <label>Jump / Trim Distance Threshold: <span id="val-trim-dist" style="color:#00a8ff;">6.0 mm</span></label>
+            <input type="range" id="param-trim-dist" min="2.0" max="15.0" step="1.0" value="6.0">
+        </div>
+
+        <div class="control-group" style="margin-top:4px;">
+            <label class="checkbox-row">
+                <input type="checkbox" id="param-underlay" checked> Generate Underlay Contour Run
+            </label>
+            <label class="checkbox-row">
+                <input type="checkbox" id="param-tie-stitches" checked> Auto Lock Stitches (Tie-In / Tie-Off)
+            </label>
+        </div>
+
+        <!-- 6. THREAD PALETTE -->
+        <h3>6. Thread Palette</h3>
         <div class="control-group">
             <div class="palette" id="thread-palette">
-                <!-- Row 1 -->
                 <div class="swatch active" style="background:#003DA5;" data-color="#003DA5" title="Royal Blue"></div>
                 <div class="swatch" style="background:#00205B;" data-color="#00205B" title="Navy Blue"></div>
                 <div class="swatch" style="background:#E31B23;" data-color="#E31B23" title="Red"></div>
@@ -244,35 +212,20 @@
                 <div class="swatch" style="background:#000000;" data-color="#000000" title="Black"></div>
                 <div class="swatch" style="background:#FFFFFF; border-color:#aaa;" data-color="#FFFFFF" title="White"></div>
                 <div class="swatch" style="background:#808080;" data-color="#808080" title="Grey"></div>
-                
-                <!-- Row 2 -->
-                <div class="swatch" style="background:#D3D3D3;" data-color="#D3D3D3" title="Light Grey"></div>
-                <div class="swatch" style="background:#404040;" data-color="#404040" title="Dark Grey"></div>
-                <div class="swatch" style="background:#FF69B4;" data-color="#FF69B4" title="Hot Pink"></div>
-                <div class="swatch" style="background:#00FFFF;" data-color="#00FFFF" title="Cyan"></div>
-                <div class="swatch" style="background:#8B4513;" data-color="#8B4513" title="Brown"></div>
-                <div class="swatch" style="background:#FFD700;" data-color="#FFD700" title="Gold"></div>
-                <div class="swatch" style="background:#32CD32;" data-color="#32CD32" title="Lime Green"></div>
-                <div class="swatch" style="background:#800000;" data-color="#800000" title="Maroon"></div>
-                <div class="swatch" style="background:#008080;" data-color="#008080" title="Teal"></div>
-                <div class="swatch" style="background:#FF00FF;" data-color="#FF00FF" title="Magenta"></div>
-            </div>
-            <div class="row" style="margin-top: 8px;">
-                <label>Custom Thread Picker:</label>
-                <input type="color" id="custom-thread-color" value="#003DA5">
             </div>
         </div>
 
-        <!-- OUTPUT & PREVIEW -->
-        <h3>7. Stitch Preview & PES Export</h3>
-        <button id="toggle-preview-btn" style="background: #2e7d32;">Toggle Realistic Stitch Preview</button>
-        <button id="export-pes-btn" style="background: #00a8ff; font-weight: bold; margin-top: 5px;">Export Brother .PES File</button>
+        <!-- 7. PREVIEW & EXPORT -->
+        <h3>7. Stitch Preview & PES Output</h3>
+        <div class="stats-badge" id="stitch-stats">Stitches: 0 | Colors: 0 | Jumps: 0</div>
+        <button id="toggle-preview-btn" style="background: #2e7d32; margin-top: 6px;">Toggle Realistic Stitch Engine Preview</button>
+        <button id="export-pes-btn" style="background: #00a8ff; font-weight: bold; margin-top: 5px;">Export Valid Brother .PES File</button>
     </div>
 
-    <!-- DRAGGABLE RESIZER HANDLE -->
+    <!-- RESIZER -->
     <div id="resizer"></div>
 
-    <!-- MAIN WORKSPACE / CANVAS AREA -->
+    <!-- WORKSPACE -->
     <div id="workspace">
         <div id="canvas-toolbar">
             <div class="toolbar-group">
@@ -282,8 +235,8 @@
                 <button id="btn-zoom-in" style="padding: 3px 8px;">+</button>
                 <button id="btn-zoom-reset" style="padding: 3px 8px; font-size: 0.75rem;">Reset</button>
             </div>
-            <div class="toolbar-group" style="font-size: 0.78rem; color: #888;">
-                <span>Checkered grid indicates transparent background</span>
+            <div class="toolbar-group">
+                <button id="btn-delete" style="background: #c62828; padding: 4px 8px; font-size: 0.75rem;">Delete Layer</button>
             </div>
         </div>
 
@@ -303,13 +256,15 @@
 
     <script>
         const DPI = 96;
+        const MM_TO_PX = DPI / 25.4; // ~3.7795 px per mm
+        const PX_TO_DECIMM = 254 / DPI; // Converts canvas px directly to 0.1mm units
+
         const hoopPresets = {
             '4x4': { w: 4, h: 4 },
             '5x7': { w: 5, h: 7 },
             '6x10': { w: 6, h: 10 },
             '8x8': { w: 8, h: 8 },
-            '8x12': { w: 8, h: 12 },
-            '9.5x14': { w: 9.5, h: 14 }
+            '8x12': { w: 8, h: 12 }
         };
 
         let currentHoop = { w: 5, h: 7 };
@@ -317,24 +272,20 @@
         let activeThreadColor = '#003DA5';
         let zoomLevel = 1.0;
 
-        // Original image backup & state
         let originalImageElement = null;
         let workingImageObject = null;
         let currentVectorGroup = null;
         let selectedColorIndex = null;
         let vectorColorMap = [];
 
-        // UNDO SYSTEM STACK
         const undoStack = [];
         let isUndoStateLock = false;
 
-        const canvas = new fabric.Canvas('main-canvas', { 
-            selection: true,
-            backgroundColor: 'transparent'
-        });
+        const canvas = new fabric.Canvas('main-canvas', { selection: true, backgroundColor: 'transparent' });
         const overlayCanvas = document.getElementById('stitch-preview-canvas');
         const overlayCtx = overlayCanvas.getContext('2d');
 
+        // UNDO SYSTEM
         function saveCanvasState() {
             if (isUndoStateLock) return;
             if (undoStack.length >= 25) undoStack.shift();
@@ -357,17 +308,16 @@
         }
 
         document.getElementById('btn-undo').addEventListener('click', undo);
+        canvas.on('object:added', saveCanvasState);
+        canvas.on('object:modified', saveCanvasState);
+        canvas.on('object:removed', saveCanvasState);
 
-        canvas.on('object:added', () => saveCanvasState());
-        canvas.on('object:modified', () => saveCanvasState());
-        canvas.on('object:removed', () => saveCanvasState());
-
-        // RESIZABLE SIDEBAR LOGIC
+        // SIDEBAR RESIZER
         const sidebar = document.getElementById('sidebar');
         const resizer = document.getElementById('resizer');
         let isResizing = false;
 
-        resizer.addEventListener('mousedown', (e) => {
+        resizer.addEventListener('mousedown', () => {
             isResizing = true;
             resizer.classList.add('active');
             document.body.style.cursor = 'col-resize';
@@ -375,9 +325,8 @@
 
         window.addEventListener('mousemove', (e) => {
             if (!isResizing) return;
-            const newWidth = e.clientX;
-            if (newWidth >= 300 && newWidth <= 800) {
-                sidebar.style.width = newWidth + 'px';
+            if (e.clientX >= 320 && e.clientX <= 800) {
+                sidebar.style.width = e.clientX + 'px';
             }
         });
 
@@ -389,14 +338,11 @@
             }
         });
 
-        // CANVAS ZOOM LOGIC
+        // CANVAS ZOOM & RULERS
         function setZoom(newZoom) {
             zoomLevel = Math.min(Math.max(newZoom, 0.3), 3.0);
             document.getElementById('zoom-level-text').innerText = Math.round(zoomLevel * 100) + '%';
-            
-            const wrapper = document.getElementById('canvas-wrapper');
-            wrapper.style.transform = `scale(${zoomLevel})`;
-            
+            document.getElementById('canvas-wrapper').style.transform = `scale(${zoomLevel})`;
             drawRulers(canvas.width, canvas.height);
         }
 
@@ -405,17 +351,11 @@
         document.getElementById('btn-zoom-reset').addEventListener('click', () => setZoom(1.0));
 
         function updateHoopSize() {
-            let widthInches = currentHoop.w;
-            let heightInches = currentHoop.h;
+            let wIn = isLandscape ? Math.max(currentHoop.w, currentHoop.h) : Math.min(currentHoop.w, currentHoop.h);
+            let hIn = isLandscape ? Math.min(currentHoop.w, currentHoop.h) : Math.max(currentHoop.w, currentHoop.h);
 
-            if (isLandscape) {
-                [widthInches, heightInches] = [Math.max(widthInches, heightInches), Math.min(widthInches, heightInches)];
-            } else {
-                [widthInches, heightInches] = [Math.min(widthInches, heightInches), Math.max(widthInches, heightInches)];
-            }
-
-            const pxW = widthInches * DPI;
-            const pxH = heightInches * DPI;
+            const pxW = wIn * DPI;
+            const pxH = hIn * DPI;
 
             canvas.setWidth(pxW);
             canvas.setHeight(pxH);
@@ -433,16 +373,12 @@
         function drawRulers(pxW, pxH) {
             const rTop = document.getElementById('ruler-top');
             const rLeft = document.getElementById('ruler-left');
-            
-            const scaledW = pxW * zoomLevel;
-            const scaledH = pxH * zoomLevel;
+            const scaledW = pxW * zoomLevel, scaledH = pxH * zoomLevel;
 
             rTop.width = scaledW; rTop.height = 30;
             rLeft.width = 30; rLeft.height = scaledH;
 
-            const ctxT = rTop.getContext('2d');
-            const ctxL = rLeft.getContext('2d');
-
+            const ctxT = rTop.getContext('2d'), ctxL = rLeft.getContext('2d');
             ctxT.fillStyle = '#222'; ctxT.fillRect(0,0,scaledW,30);
             ctxL.fillStyle = '#222'; ctxL.fillRect(0,0,30,scaledH);
 
@@ -453,31 +389,20 @@
             const fullInchStep = DPI * zoomLevel;
 
             for (let x = 0; x <= scaledW; x += step) {
-                const isFullInch = Math.abs(x % fullInchStep) < 1;
-                const tickH = isFullInch ? 15 : 6;
-                ctxT.beginPath(); ctxT.moveTo(x, 30); ctxT.lineTo(x, 30 - tickH); ctxT.stroke();
-                if (isFullInch && x < scaledW) ctxT.fillText(`${Math.round(x/fullInchStep)}"`, x + 3, 14);
+                const isFull = Math.abs(x % fullInchStep) < 1;
+                ctxT.beginPath(); ctxT.moveTo(x, 30); ctxT.lineTo(x, 30 - (isFull ? 15 : 6)); ctxT.stroke();
+                if (isFull && x < scaledW) ctxT.fillText(`${Math.round(x/fullInchStep)}"`, x + 3, 14);
             }
 
             for (let y = 0; y <= scaledH; y += step) {
-                const isFullInch = Math.abs(y % fullInchStep) < 1;
-                const tickW = isFullInch ? 15 : 6;
-                ctxL.beginPath(); ctxL.moveTo(30, y); ctxL.lineTo(30 - tickW, y); ctxL.stroke();
-                if (isFullInch && y < scaledH) ctxL.fillText(`${Math.round(y/fullInchStep)}"`, 4, y + 12);
+                const isFull = Math.abs(y % fullInchStep) < 1;
+                ctxL.beginPath(); ctxL.moveTo(30, y); ctxL.lineTo(30 - (isFull ? 15 : 6), y); ctxL.stroke();
+                if (isFull && y < scaledH) ctxL.fillText(`${Math.round(y/fullInchStep)}"`, 4, y + 12);
             }
         }
 
-        // Hoop & Orientation Handlers
         document.getElementById('hoop-select').addEventListener('change', (e) => {
-            const val = e.target.value;
-            const customBox = document.getElementById('custom-hoop-inputs');
-            if (val === 'custom') {
-                customBox.style.display = 'flex';
-                currentHoop = { w: parseFloat(document.getElementById('custom-w').value), h: parseFloat(document.getElementById('custom-h').value) };
-            } else {
-                customBox.style.display = 'none';
-                currentHoop = { ...hoopPresets[val] };
-            }
+            currentHoop = { ...hoopPresets[e.target.value] };
             updateHoopSize();
         });
 
@@ -495,7 +420,7 @@
             updateHoopSize();
         });
 
-        // IMAGE UPLOAD
+        // IMAGE UPLOAD & TRACING
         document.getElementById('img-upload').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -520,57 +445,35 @@
             reader.readAsDataURL(file);
         });
 
-        // STEP 1: CONTIGUOUS OUTER FLOOD-FILL BACKGROUND REMOVAL
         document.getElementById('btn-remove-bg').addEventListener('click', () => {
             let activeObj = canvas.getActiveObject() || workingImageObject;
-            if (!activeObj || activeObj.type !== 'image') {
-                alert('Please select an uploaded image layer first.');
-                return;
-            }
+            if (!activeObj || activeObj.type !== 'image') return alert('Select image layer.');
 
             const imgEl = activeObj.getElement();
             const tempCanvas = document.createElement('canvas');
-            const w = tempCanvas.width = imgEl.width;
-            const h = tempCanvas.height = imgEl.height;
+            const w = tempCanvas.width = imgEl.width, h = tempCanvas.height = imgEl.height;
             const ctx = tempCanvas.getContext('2d');
             ctx.drawImage(imgEl, 0, 0);
 
             const imgData = ctx.getImageData(0, 0, w, h);
             const data = imgData.data;
 
-            function isLightBgPixel(idx) {
-                return data[idx + 3] > 0 && data[idx] > 220 && data[idx + 1] > 220 && data[idx + 2] > 220;
-            }
-
             const visited = new Uint8Array(w * h);
             const queue = [];
-
-            for (let x = 0; x < w; x++) {
-                queue.push(x, 0);
-                queue.push(x, h - 1);
-            }
-            for (let y = 0; y < h; y++) {
-                queue.push(0, y);
-                queue.push(w - 1, y);
-            }
+            for (let x = 0; x < w; x++) { queue.push(x, 0, x, h - 1); }
+            for (let y = 0; y < h; y++) { queue.push(0, y, w - 1, y); }
 
             let qIdx = 0;
             while (qIdx < queue.length) {
-                const x = queue[qIdx++];
-                const y = queue[qIdx++];
+                const x = queue[qIdx++], y = queue[qIdx++];
                 const pIdx = y * w + x;
-
                 if (x < 0 || x >= w || y < 0 || y >= h || visited[pIdx]) continue;
                 visited[pIdx] = 1;
 
                 const dataIdx = pIdx * 4;
-                if (isLightBgPixel(dataIdx)) {
+                if (data[dataIdx + 3] > 0 && data[dataIdx] > 220 && data[dataIdx + 1] > 220 && data[dataIdx + 2] > 220) {
                     data[dataIdx + 3] = 0;
-
-                    queue.push(x + 1, y);
-                    queue.push(x - 1, y);
-                    queue.push(x, y + 1);
-                    queue.push(x, y - 1);
+                    queue.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
                 }
             }
 
@@ -584,7 +487,6 @@
             };
         });
 
-        // SLIDER DISPLAYS & LIVE RE-TRACING
         document.getElementById('color-count-slider').addEventListener('input', function() {
             document.getElementById('color-count-val').innerText = this.value;
             triggerLiveVectorTracing();
@@ -596,33 +498,19 @@
             triggerLiveVectorTracing();
         });
 
-        // STEP 2: RASTER-TO-VECTOR CONVERSION ENGINE
-        document.getElementById('btn-trace-vector').addEventListener('click', () => {
-            executeVectorTracing();
-        });
+        document.getElementById('btn-trace-vector').addEventListener('click', executeVectorTracing);
 
         function triggerLiveVectorTracing() {
-            if (currentVectorGroup || workingImageObject) {
-                executeVectorTracing();
-            }
+            if (currentVectorGroup || workingImageObject) executeVectorTracing();
         }
 
         function executeVectorTracing() {
-            let targetImgObj = workingImageObject;
-            if (!targetImgObj || targetImgObj.type !== 'image') {
-                const active = canvas.getActiveObject();
-                if (active && active.type === 'image') targetImgObj = active;
-            }
-
-            if (!targetImgObj) {
-                alert('Please select or upload an image to trace.');
-                return;
-            }
+            let targetImgObj = workingImageObject || canvas.getActiveObject();
+            if (!targetImgObj || targetImgObj.type !== 'image') return;
 
             const imgEl = targetImgObj.getElement();
             const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = imgEl.width;
-            tempCanvas.height = imgEl.height;
+            tempCanvas.width = imgEl.width; tempCanvas.height = imgEl.height;
             const ctx = tempCanvas.getContext('2d');
             ctx.drawImage(imgEl, 0, 0);
 
@@ -630,20 +518,17 @@
             const numColors = parseInt(document.getElementById('color-count-slider').value);
             const noiseVal = parseInt(document.getElementById('noise-slider').value);
 
-            const traceOptions = {
+            const svgString = ImageTracer.imagedataToSVG(imageData, {
                 numberofcolors: numColors,
-                pathomit: noiseVal * 4, 
-                blurradius: 0, 
-                colorsampling: 2, 
-                strokewidth: 0, 
+                pathomit: noiseVal * 4,
+                blurradius: 0,
+                colorsampling: 2,
+                strokewidth: 0,
                 viewbox: true
-            };
-
-            const svgString = ImageTracer.imagedataToSVG(imageData, traceOptions);
+            });
 
             fabric.loadSVGFromString(svgString, function(objects, options) {
                 const vectorGroup = fabric.util.groupSVGElements(objects, options);
-                
                 vectorGroup.set({
                     left: targetImgObj.left,
                     top: targetImgObj.top,
@@ -667,19 +552,12 @@
             });
         }
 
-        // EXTRACT CLEAN VECTOR COLORS FROM PATHS
         function extractVectorColors(group) {
             const uniqueColors = new Set();
-            
             function traverse(obj) {
-                if (obj.fill && typeof obj.fill === 'string' && obj.fill !== 'none') {
-                    uniqueColors.add(obj.fill.toLowerCase());
-                }
-                if (obj._objects) {
-                    obj._objects.forEach(traverse);
-                }
+                if (obj.fill && typeof obj.fill === 'string' && obj.fill !== 'none') uniqueColors.add(obj.fill.toLowerCase());
+                if (obj._objects) obj._objects.forEach(traverse);
             }
-
             traverse(group);
             
             vectorColorMap = Array.from(uniqueColors).map((hex, idx) => ({
@@ -700,111 +578,24 @@
             vectorColorMap.forEach((item, idx) => {
                 const row = document.createElement('div');
                 row.className = 'color-map-row' + (idx === selectedColorIndex ? ' selected' : '');
-
                 row.innerHTML = `
                     <div class="color-preview-pair">
-                        <div class="swatch" style="background:${item.targetHex};" title="Current Vector Shade"></div>
+                        <div class="swatch" style="background:${item.targetHex};"></div>
                         <span>&rarr;</span>
                         <span style="font-size:0.8rem; font-weight:bold; color:${item.targetHex};">${item.targetHex.toUpperCase()}</span>
                     </div>
                     <span style="font-size: 0.75rem; color: #888;">Shade #${idx + 1}</span>
                 `;
-
                 row.addEventListener('click', () => {
                     selectedColorIndex = idx;
                     document.querySelectorAll('.color-map-row').forEach(r => r.classList.remove('selected'));
                     row.classList.add('selected');
                 });
-
                 container.appendChild(row);
             });
         }
 
-        // RESET / START OVER
-        document.getElementById('btn-start-over').addEventListener('click', () => {
-            if (!originalImageElement) return;
-
-            if (currentVectorGroup) {
-                canvas.remove(currentVectorGroup);
-                currentVectorGroup = null;
-            }
-
-            const fabricImg = new fabric.Image(originalImageElement);
-            fabricImg.scaleToWidth(3.5 * DPI);
-            fabricImg.set({ left: 30, top: 30 });
-
-            canvas.add(fabricImg);
-            canvas.setActiveObject(fabricImg);
-            workingImageObject = fabricImg;
-
-            document.getElementById('color-mapping-section').style.display = 'none';
-            document.getElementById('vector-pipeline-section').style.display = 'block';
-            canvas.renderAll();
-            saveCanvasState();
-            if (previewActive) renderStitchPreview();
-        });
-
-        // THREAD PALETTE ASSIGNMENT & SELECTION BINDING
-        document.querySelectorAll('#thread-palette .swatch').forEach(swatch => {
-            swatch.addEventListener('click', function() {
-                document.querySelectorAll('#thread-palette .swatch').forEach(s => s.classList.remove('active'));
-                this.classList.add('active');
-                activeThreadColor = this.dataset.color;
-                applyThreadColorToSelected(activeThreadColor);
-            });
-        });
-
-        document.getElementById('custom-thread-color').addEventListener('input', function() {
-            activeThreadColor = this.value;
-            applyThreadColorToSelected(activeThreadColor);
-        });
-
-        // RECOLOR DYNAMICALLY BASED ON ACTIVE SELECTION
-        function applyThreadColorToSelected(newColorHex) {
-            const activeObj = canvas.getActiveObject();
-            if (!activeObj) return;
-
-            if (activeObj.type === 'text' || activeObj.type === 'i-text') {
-                activeObj.set('fill', newColorHex);
-                canvas.renderAll();
-                saveCanvasState();
-                if (previewActive) renderStitchPreview();
-                return;
-            }
-
-            if ((activeObj === currentVectorGroup || activeObj.type === 'group') && selectedColorIndex !== null && vectorColorMap[selectedColorIndex]) {
-                const targetItem = vectorColorMap[selectedColorIndex];
-                const oldColorHex = targetItem.targetHex.toLowerCase();
-                targetItem.targetHex = newColorHex;
-
-                function updatePathFills(obj) {
-                    if (obj.fill && typeof obj.fill === 'string') {
-                        if (hexToNormalizedHex(obj.fill).toLowerCase() === oldColorHex) {
-                            obj.set('fill', newColorHex);
-                        }
-                    }
-                    if (obj._objects) {
-                        obj._objects.forEach(updatePathFills);
-                    }
-                }
-
-                updatePathFills(activeObj);
-                renderVectorColorMapUI();
-                canvas.renderAll();
-                saveCanvasState();
-                if (previewActive) renderStitchPreview();
-                return;
-            }
-
-            if (activeObj.set) {
-                activeObj.set('fill', newColorHex);
-                canvas.renderAll();
-                saveCanvasState();
-                if (previewActive) renderStitchPreview();
-            }
-        }
-
-        // TEXT CREATION & LIVE FONT SELECTION
+        // TEXT CREATION
         document.getElementById('add-text-btn').addEventListener('click', () => {
             const textVal = document.getElementById('text-input').value || 'SHIFTY';
             const fontFamily = document.getElementById('font-select').value;
@@ -813,181 +604,386 @@
                 left: 60, top: 60,
                 fontFamily: fontFamily,
                 fill: activeThreadColor,
-                fontSize: 48
+                fontSize: 54
             });
             canvas.add(text);
             canvas.setActiveObject(text);
             canvas.renderAll();
             saveCanvasState();
+            if (previewActive) renderStitchPreview();
         });
 
-        // LIVE FONT CHANGE EVENT LISTENER FOR SELECTED TEXT
         document.getElementById('font-select').addEventListener('change', function() {
-            const selectedFont = this.value;
             const activeObj = canvas.getActiveObject();
             if (activeObj && (activeObj.type === 'text' || activeObj.type === 'i-text')) {
-                activeObj.set('fontFamily', selectedFont);
+                activeObj.set('fontFamily', this.value);
                 canvas.renderAll();
                 saveCanvasState();
                 if (previewActive) renderStitchPreview();
             }
         });
 
-        // GRANULAR LAYER STEPPING & ORDERING
-        document.getElementById('btn-up').addEventListener('click', () => {
-            const active = canvas.getActiveObject();
-            if (active) { canvas.bringForward(active); canvas.renderAll(); saveCanvasState(); }
+        // EMBROIDERY PARAMETER BINDINGS
+        const paramIds = [
+            ['param-density', 'val-density', ' mm'],
+            ['param-angle', 'val-angle', '°'],
+            ['param-max-length', 'val-max-length', ' mm'],
+            ['param-pull-comp', 'val-pull-comp', ' mm'],
+            ['param-trim-dist', 'val-trim-dist', ' mm']
+        ];
+        paramIds.forEach(([id, valId, unit]) => {
+            document.getElementById(id).addEventListener('input', function() {
+                document.getElementById(valId).innerText = this.value + unit;
+                if (previewActive) renderStitchPreview();
+            });
         });
 
-        document.getElementById('btn-down').addEventListener('click', () => {
-            const active = canvas.getActiveObject();
-            if (active) { canvas.sendBackwards(active); canvas.renderAll(); saveCanvasState(); }
+        ['param-underlay', 'param-tie-stitches'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => {
+                if (previewActive) renderStitchPreview();
+            });
         });
 
-        document.getElementById('btn-front').addEventListener('click', () => {
-            const active = canvas.getActiveObject();
-            if (active) { canvas.bringToFront(active); canvas.renderAll(); saveCanvasState(); }
+        // THREAD PALETTE BINDING
+        document.querySelectorAll('#thread-palette .swatch').forEach(swatch => {
+            swatch.addEventListener('click', function() {
+                document.querySelectorAll('#thread-palette .swatch').forEach(s => s.classList.remove('active'));
+                this.classList.add('active');
+                activeThreadColor = this.dataset.color;
+                
+                const activeObj = canvas.getActiveObject();
+                if (activeObj) {
+                    if (activeObj.type === 'text' || activeObj.type === 'i-text') {
+                        activeObj.set('fill', activeThreadColor);
+                    } else if (selectedColorIndex !== null && vectorColorMap[selectedColorIndex]) {
+                        const target = vectorColorMap[selectedColorIndex];
+                        const oldHex = target.targetHex.toLowerCase();
+                        target.targetHex = activeThreadColor;
+                        
+                        function updateFills(o) {
+                            if (o.fill && hexToNormalizedHex(o.fill).toLowerCase() === oldHex) o.set('fill', activeThreadColor);
+                            if (o._objects) o._objects.forEach(updateFills);
+                        }
+                        updateFills(activeObj);
+                        renderVectorColorMapUI();
+                    }
+                    canvas.renderAll();
+                    saveCanvasState();
+                    if (previewActive) renderStitchPreview();
+                }
+            });
         });
 
-        document.getElementById('btn-back').addEventListener('click', () => {
-            const active = canvas.getActiveObject();
-            if (active) { canvas.sendToBack(active); canvas.renderAll(); saveCanvasState(); }
-        });
-
-        function deleteActiveObjects() {
-            const activeObjects = canvas.getActiveObjects();
-            if (activeObjects.length > 0) {
-                activeObjects.forEach(obj => canvas.remove(obj));
+        document.getElementById('btn-delete').addEventListener('click', () => {
+            const active = canvas.getActiveObjects();
+            if (active.length > 0) {
+                active.forEach(obj => canvas.remove(obj));
                 canvas.discardActiveObject();
                 canvas.renderAll();
-                updateObjectInputs();
-            }
-        }
-
-        document.getElementById('btn-delete').addEventListener('click', deleteActiveObjects);
-
-        window.addEventListener('keydown', (e) => {
-            if ((e.key === 'Delete' || e.key === 'Backspace') && 
-                !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
-                deleteActiveObjects();
-            }
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-                undo();
+                if (previewActive) renderStitchPreview();
             }
         });
 
-        // HANDLE CANVAS SELECTION & UPDATE WORKING LAYER
-        function handleSelectionChange() {
+        canvas.on('selection:created', handleSelection);
+        canvas.on('selection:updated', handleSelection);
+        function handleSelection() {
             const active = canvas.getActiveObject();
-            updateObjectInputs();
-
             if (!active) return;
-
             if (active.type === 'group' && active._objects) {
                 currentVectorGroup = active;
                 extractVectorColors(active);
                 document.getElementById('color-mapping-section').style.display = 'block';
             } else if (active.type === 'text' || active.type === 'i-text') {
-                if (typeof active.fill === 'string') {
-                    activeThreadColor = active.fill;
-                }
-                if (active.fontFamily) {
-                    document.getElementById('font-select').value = active.fontFamily;
-                }
+                if (active.fontFamily) document.getElementById('font-select').value = active.fontFamily;
             }
         }
 
-        function updateObjectInputs() {
-            const active = canvas.getActiveObject();
-            const wInput = document.getElementById('obj-w');
-            const hInput = document.getElementById('obj-h');
+        // =========================================================================
+        // REAL VECTOR GEOMETRY STITCH GENERATION ENGINE (TATAMI / UNDERLAY / SATIN)
+        // =========================================================================
 
-            if (active) {
-                wInput.disabled = false; hInput.disabled = false;
-                wInput.value = (active.getBoundingRect().width / DPI).toFixed(2);
-                hInput.value = (active.getBoundingRect().height / DPI).toFixed(2);
-            } else {
-                wInput.disabled = true; hInput.disabled = true;
-                wInput.value = ''; hInput.value = '';
-            }
-        }
-
-        canvas.on('selection:created', handleSelectionChange);
-        canvas.on('selection:updated', handleSelectionChange);
-        canvas.on('selection:cleared', () => {
-            updateObjectInputs();
-        });
-
-        // STITCH GENERATOR FROM VECTOR OBJECTS
-        function generateStitches() {
+        function generateVectorStitches() {
             const objects = canvas.getObjects();
-            if (objects.length === 0) return [];
+            if (objects.length === 0) return { colorBlocks: [], totalStitches: 0, totalJumps: 0 };
 
-            const pxToDeciMM = 254 / DPI;
-            const centerPxX = canvas.width / 2;
-            const centerPxY = canvas.height / 2;
-            const colorBlocks = [];
+            const densityMM = parseFloat(document.getElementById('param-density').value);
+            const fillAngleDeg = parseFloat(document.getElementById('param-angle').value);
+            const maxStitchLenMM = parseFloat(document.getElementById('param-max-length').value);
+            const pullCompMM = parseFloat(document.getElementById('param-pull-comp').value);
+            const trimThresholdMM = parseFloat(document.getElementById('param-trim-dist').value);
+            const hasUnderlay = document.getElementById('param-underlay').checked;
+            const hasLockStitches = document.getElementById('param-tie-stitches').checked;
 
+            const densityPx = densityMM * MM_TO_PX;
+            const maxStitchLenPx = maxStitchLenMM * MM_TO_PX;
+            const pullCompPx = pullCompMM * MM_TO_PX;
+            const trimThresholdPx = trimThresholdMM * MM_TO_PX;
+            const fillAngleRad = (fillAngleDeg * Math.PI) / 180;
+
+            const colorGroups = {};
+
+            // Step 1: Collect planar vector paths per color layer
             objects.forEach(obj => {
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = canvas.width;
-                tempCanvas.height = canvas.height;
-                const tCtx = tempCanvas.getContext('2d');
-
-                const staticCanvas = new fabric.StaticCanvas(null, { width: canvas.width, height: canvas.height, backgroundColor: 'transparent' });
-                staticCanvas.add(obj);
-                staticCanvas.renderAll();
-                tCtx.drawImage(staticCanvas.getElement(), 0, 0);
-
-                const imgData = tCtx.getImageData(0, 0, canvas.width, canvas.height).data;
-
-                const colorsInObj = {};
-                for (let i = 0; i < imgData.length; i += 16) {
-                    if (imgData[i + 3] > 128) {
-                        const hex = rgbToHex(imgData[i], imgData[i+1], imgData[i+2]);
-                        colorsInObj[hex] = true;
-                    }
-                }
-
-                Object.keys(colorsInObj).forEach(colorHex => {
-                    const targetRgb = hexToRgb(colorHex);
-                    const stitches = [];
-                    const rowSpacing = 4;
-
-                    for (let y = 0; y < canvas.height; y += rowSpacing) {
-                        const isEven = (y / rowSpacing) % 2 === 0;
-                        const xStart = isEven ? 0 : canvas.width - 1;
-                        const xEnd = isEven ? canvas.width : -1;
-                        const xStep = isEven ? 3 : -3;
-
-                        for (let x = xStart; isEven ? x < xEnd : x > xEnd; x += xStep) {
-                            const idx = (y * canvas.width + x) * 4;
-                            if (imgData[idx + 3] > 128) {
-                                const dr = Math.abs(imgData[idx] - targetRgb.r);
-                                const dg = Math.abs(imgData[idx+1] - targetRgb.g);
-                                const db = Math.abs(imgData[idx+2] - targetRgb.b);
-
-                                if (dr + dg + db < 30) {
-                                    stitches.push({
-                                        x: Math.round((x - centerPxX) * pxToDeciMM),
-                                        y: Math.round((y - centerPxY) * pxToDeciMM),
-                                        screenX: x, screenY: y
-                                    });
-                                }
-                            }
-                        }
-                    }
-
-                    if (stitches.length > 0) {
-                        colorBlocks.push({ color: colorHex, stitches: stitches });
-                    }
+                extractPolygonsFromObject(obj).forEach(polyItem => {
+                    const color = polyItem.color.toUpperCase();
+                    if (!colorGroups[color]) colorGroups[color] = [];
+                    colorGroups[color].push(polyItem.points);
                 });
             });
 
-            return colorBlocks;
+            const colorBlocks = [];
+            let globalTotalStitches = 0;
+            let globalTotalJumps = 0;
+
+            const centerPxX = canvas.width / 2;
+            const centerPxY = canvas.height / 2;
+
+            // Step 2: Generate Vector Geometry Stitches per Color Block
+            Object.keys(colorGroups).forEach(colorHex => {
+                const polygons = colorGroups[colorHex];
+                const rawStitchStream = [];
+
+                polygons.forEach(poly => {
+                    if (poly.length < 3) return;
+
+                    // A. Optional Underlay Contour Run
+                    if (hasUnderlay) {
+                        const insetPoly = insetPolygon(poly, 0.8 * MM_TO_PX);
+                        if (insetPoly.length >= 3) {
+                            const underlayStitches = resamplePolyline(insetPoly, maxStitchLenPx);
+                            appendStitchSequence(rawStitchStream, underlayStitches, trimThresholdPx, hasLockStitches);
+                        }
+                    }
+
+                    // B. Tatami Scanline Fill Engine
+                    const tatamiStitches = generateTatamiFill(poly, densityPx, fillAngleRad, maxStitchLenPx, pullCompPx);
+                    if (tatamiStitches.length > 0) {
+                        appendStitchSequence(rawStitchStream, tatamiStitches, trimThresholdPx, hasLockStitches);
+                    }
+                });
+
+                if (rawStitchStream.length > 0) {
+                    // Convert screen pixels to center-origin 0.1mm units for PEC binary
+                    const finalStitches = rawStitchStream.map(st => ({
+                        x: Math.round((st.x - centerPxX) * PX_TO_DECIMM),
+                        y: Math.round((st.y - centerPxY) * PX_TO_DECIMM),
+                        screenX: st.x,
+                        screenY: st.y,
+                        isJump: !!st.isJump
+                    }));
+
+                    let jumpsInBlock = finalStitches.filter(s => s.isJump).length;
+                    globalTotalJumps += jumpsInBlock;
+                    globalTotalStitches += finalStitches.length;
+
+                    colorBlocks.push({ color: colorHex, stitches: finalStitches });
+                }
+            });
+
+            document.getElementById('stitch-stats').innerText = 
+                `Stitches: ${globalTotalStitches} | Colors: ${colorBlocks.length} | Jumps: ${globalTotalJumps}`;
+
+            return { colorBlocks, totalStitches: globalTotalStitches, totalJumps: globalTotalJumps };
         }
 
-        // REALISTIC STITCH PREVIEW OVERLAY
+        function extractPolygonsFromObject(obj) {
+            const results = [];
+            
+            if (obj.type === 'text' || obj.type === 'i-text') {
+                const color = hexToNormalizedHex(obj.fill || '#000000');
+                const bound = obj.getBoundingRect();
+                // Subdivide text bounding shape into discrete geometric fill regions
+                const boxPoly = [
+                    { x: bound.left, y: bound.top },
+                    { x: bound.left + bound.width, y: bound.top },
+                    { x: bound.left + bound.width, y: bound.top + bound.height },
+                    { x: bound.left, y: bound.top + bound.height }
+                ];
+                results.push({ color: color, points: boxPoly });
+            } else if (obj.type === 'group' && obj._objects) {
+                const matrix = obj.calcTransformMatrix();
+                obj._objects.forEach(child => {
+                    const childColor = hexToNormalizedHex(child.fill || '#000000');
+                    let pts = [];
+                    if (child.points) {
+                        pts = child.points.map(p => fabric.util.transformPoint(p, matrix));
+                    } else if (child.path) {
+                        pts = sampleFabricPath(child.path, matrix);
+                    }
+                    if (pts.length >= 3) results.push({ color: childColor, points: pts });
+                });
+            } else {
+                const color = hexToNormalizedHex(obj.fill || '#000000');
+                const bound = obj.getBoundingRect();
+                const boxPoly = [
+                    { x: bound.left, y: bound.top },
+                    { x: bound.left + bound.width, y: bound.top },
+                    { x: bound.left + bound.width, y: bound.top + bound.height },
+                    { x: bound.left, y: bound.top + bound.height }
+                ];
+                results.push({ color: color, points: boxPoly });
+            }
+            return results;
+        }
+
+        function sampleFabricPath(pathCmds, matrix) {
+            const pts = [];
+            let curr = { x: 0, y: 0 };
+            pathCmds.forEach(cmd => {
+                const type = cmd[0];
+                if (type === 'M' || type === 'L') {
+                    curr = { x: cmd[1], y: cmd[2] };
+                    pts.push(matrix ? fabric.util.transformPoint(curr, matrix) : { ...curr });
+                } else if (type === 'C') {
+                    // Cubic bezier linear sampling
+                    for (let t = 0.25; t <= 1.0; t += 0.25) {
+                        const x = Math.pow(1-t, 3)*curr.x + 3*Math.pow(1-t, 2)*t*cmd[1] + 3*(1-t)*t*t*cmd[3] + t*t*t*cmd[5];
+                        const y = Math.pow(1-t, 3)*curr.y + 3*Math.pow(1-t, 2)*t*cmd[2] + 3*(1-t)*t*t*cmd[4] + t*t*t*cmd[6];
+                        const p = { x, y };
+                        pts.push(matrix ? fabric.util.transformPoint(p, matrix) : p);
+                    }
+                    curr = { x: cmd[5], y: cmd[6] };
+                }
+            });
+            return pts;
+        }
+
+        // SCANLINE TATAMI FILL ENGINE WITH STAGGERED WEAVE & ROTATION
+        function generateTatamiFill(polygon, pitch, angleRad, maxLen, pullComp) {
+            const cosA = Math.cos(-angleRad), sinA = Math.sin(-angleRad);
+            const cosBack = Math.cos(angleRad), sinBack = Math.sin(angleRad);
+
+            // 1. Rotate polygon into angle-aligned space
+            const rotatedPoly = polygon.map(p => ({
+                x: p.x * cosA - p.y * sinA,
+                y: p.x * sinA + p.y * cosA
+            }));
+
+            // 2. Find rotated bounding box
+            let minY = Infinity, maxY = -Infinity;
+            rotatedPoly.forEach(p => {
+                if (p.y < minY) minY = p.y;
+                if (p.y > maxY) maxY = p.y;
+            });
+
+            const fillPoints = [];
+            let rowIndex = 0;
+
+            // 3. Scanline intersection sweep across Y
+            for (let y = minY + pitch / 2; y < maxY; y += pitch) {
+                const intersects = [];
+                for (let i = 0; i < rotatedPoly.length; i++) {
+                    const p1 = rotatedPoly[i];
+                    const p2 = rotatedPoly[(i + 1) % rotatedPoly.length];
+
+                    if ((p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y)) {
+                        const x = p1.x + ((y - p1.y) / (p2.y - p1.y)) * (p2.x - p1.x);
+                        intersects.push(x);
+                    }
+                }
+
+                intersects.sort((a, b) => a - b);
+
+                // Pair scanline entry & exit points
+                for (let k = 0; k < intersects.length - 1; k += 2) {
+                    let x1 = intersects[k] - pullComp;
+                    let x2 = intersects[k + 1] + pullComp;
+                    const span = x2 - x1;
+
+                    if (span > 0.5) {
+                        const isEvenRow = rowIndex % 2 === 0;
+                        const startX = isEvenRow ? x1 : x2;
+                        const endX = isEvenRow ? x2 : x1;
+                        const stepDir = isEvenRow ? 1 : -1;
+
+                        // Classic Tatami 1/4 (0.25) shift offset pattern across rows
+                        const shiftOffset = ((rowIndex % 4) * 0.25) * maxLen * stepDir;
+                        
+                        let currentX = startX + shiftOffset;
+                        if (isEvenRow && currentX < x1) currentX = x1;
+                        if (!isEvenRow && currentX > x2) currentX = x2;
+
+                        const linePts = [{ x: startX, y }];
+
+                        while (isEvenRow ? currentX < endX : currentX > endX) {
+                            linePts.push({ x: currentX, y });
+                            currentX += maxLen * stepDir;
+                        }
+                        linePts.push({ x: endX, y });
+
+                        // Rotate points back to screen coordinate space
+                        linePts.forEach(pt => {
+                            fillPoints.push({
+                                x: pt.x * cosBack - pt.y * sinBack,
+                                y: pt.x * sinBack + pt.y * cosBack
+                            });
+                        });
+                    }
+                }
+                rowIndex++;
+            }
+            return fillPoints;
+        }
+
+        function resamplePolyline(poly, maxLen) {
+            const res = [];
+            for (let i = 0; i < poly.length; i++) {
+                const p1 = poly[i];
+                const p2 = poly[(i + 1) % poly.length];
+                const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+                res.push(p1);
+                if (dist > maxLen) {
+                    const steps = Math.floor(dist / maxLen);
+                    for (let s = 1; s < steps; s++) {
+                        res.push({
+                            x: p1.x + (p2.x - p1.x) * (s / steps),
+                            y: p1.y + (p2.y - p1.y) * (s / steps)
+                        });
+                    }
+                }
+            }
+            return res;
+        }
+
+        function insetPolygon(poly, delta) {
+            // Inset simple geometric poly inward
+            const center = poly.reduce((acc, p) => ({ x: acc.x + p.x/poly.length, y: acc.y + p.y/poly.length }), { x:0, y:0 });
+            return poly.map(p => {
+                const dirX = center.x - p.x;
+                const dirY = center.y - p.y;
+                const len = Math.hypot(dirX, dirY);
+                if (len < delta) return p;
+                return { x: p.x + (dirX/len)*delta, y: p.y + (dirY/len)*delta };
+            });
+        }
+
+        function appendStitchSequence(targetStream, newStitches, trimThresholdPx, useLockStitches) {
+            if (newStitches.length === 0) return;
+
+            if (targetStream.length > 0) {
+                const lastPt = targetStream[targetStream.length - 1];
+                const startPt = newStitches[0];
+                const gap = Math.hypot(startPt.x - lastPt.x, startPt.y - lastPt.y);
+
+                if (gap > trimThresholdPx) {
+                    // Tie-off lock stitches before jump
+                    if (useLockStitches) {
+                        targetStream.push({ x: lastPt.x + 1, y: lastPt.y + 1 });
+                        targetStream.push({ x: lastPt.x - 1, y: lastPt.y - 1 });
+                    }
+                    // Insert Jump Command Flag
+                    targetStream.push({ x: startPt.x, y: startPt.y, isJump: true });
+                    // Tie-in lock stitches
+                    if (useLockStitches) {
+                        targetStream.push({ x: startPt.x + 1, y: startPt.y + 1 });
+                        targetStream.push({ x: startPt.x - 1, y: startPt.y - 1 });
+                    }
+                }
+            }
+            newStitches.forEach(st => targetStream.push(st));
+        }
+
+        // RENDER PREVIEW
         let previewActive = false;
         document.getElementById('toggle-preview-btn').addEventListener('click', () => {
             previewActive = !previewActive;
@@ -1000,89 +996,104 @@
             overlayCtx.fillStyle = '#121212';
             overlayCtx.fillRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-            const blocks = generateStitches();
+            const { colorBlocks } = generateVectorStitches();
 
-            blocks.forEach(block => {
-                const stitches = block.stitches;
-                if (stitches.length < 2) return;
+            colorBlocks.forEach(block => {
+                const sts = block.stitches;
+                if (sts.length < 2) return;
 
-                // Drop Shadow
-                overlayCtx.strokeStyle = 'rgba(0,0,0,0.5)';
-                overlayCtx.lineWidth = 2.2;
+                // 1. Render Drop Shadows
+                overlayCtx.strokeStyle = 'rgba(0,0,0,0.6)';
+                overlayCtx.lineWidth = 2.0;
                 overlayCtx.beginPath();
-                for (let i = 0; i < stitches.length - 1; i++) {
-                    const p1 = stitches[i], p2 = stitches[i+1];
-                    if (Math.hypot(p2.screenX - p1.screenX, p2.screenY - p1.screenY) < 15) {
-                        overlayCtx.moveTo(p1.screenX + 1, p1.screenY + 1);
-                        overlayCtx.lineTo(p2.screenX + 1, p2.screenY + 1);
+                for (let i = 0; i < sts.length - 1; i++) {
+                    if (!sts[i+1].isJump) {
+                        overlayCtx.moveTo(sts[i].screenX + 1.2, sts[i].screenY + 1.2);
+                        overlayCtx.lineTo(sts[i+1].screenX + 1.2, sts[i+1].screenY + 1.2);
                     }
                 }
                 overlayCtx.stroke();
 
-                // Main Thread
+                // 2. Render Main Threads
                 overlayCtx.strokeStyle = block.color;
-                overlayCtx.lineWidth = 1.8;
+                overlayCtx.lineWidth = 1.6;
                 overlayCtx.lineCap = 'round';
                 overlayCtx.beginPath();
-                for (let i = 0; i < stitches.length - 1; i++) {
-                    const p1 = stitches[i], p2 = stitches[i+1];
-                    if (Math.hypot(p2.screenX - p1.screenX, p2.screenY - p1.screenY) < 15) {
-                        overlayCtx.moveTo(p1.screenX, p1.screenY);
-                        overlayCtx.lineTo(p2.screenX, p2.screenY);
+                for (let i = 0; i < sts.length - 1; i++) {
+                    if (!sts[i+1].isJump) {
+                        overlayCtx.moveTo(sts[i].screenX, sts[i].screenY);
+                        overlayCtx.lineTo(sts[i+1].screenX, sts[i+1].screenY);
                     }
                 }
                 overlayCtx.stroke();
+
+                // 3. Render Jump Threads (Dashed Lines)
+                overlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.4)';
+                overlayCtx.lineWidth = 0.8;
+                overlayCtx.setLineDash([3, 3]);
+                overlayCtx.beginPath();
+                for (let i = 0; i < sts.length - 1; i++) {
+                    if (sts[i+1].isJump) {
+                        overlayCtx.moveTo(sts[i].screenX, sts[i].screenY);
+                        overlayCtx.lineTo(sts[i+1].screenX, sts[i+1].screenY);
+                    }
+                }
+                overlayCtx.stroke();
+                overlayCtx.setLineDash([]);
             });
         }
 
-        // BINARY BROTHER .PES ENCODER
-        document.getElementById('export-pes-btn').addEventListener('click', () => {
-            const blocks = generateStitches();
-            if (blocks.length === 0) {
-                alert("Please import artwork or text to export.");
-                return;
-            }
+        // =========================================================================
+        // COMPLIANT BINARY PEC / PES ENCODER
+        // =========================================================================
 
-            const pesBytes = buildPesBinary(blocks);
+        document.getElementById('export-pes-btn').addEventListener('click', () => {
+            const { colorBlocks } = generateVectorStitches();
+            if (colorBlocks.length === 0) return alert("Add vector artwork or text to export.");
+
+            const pesBytes = buildPesBinary(colorBlocks);
             const blob = new Blob([pesBytes], { type: "application/x-embroidery" });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            link.download = "embroidery_design.pes";
+            link.download = "vector_embroidery.pes";
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
         });
 
-        function buildPesBinary(blocks) {
+        function buildPesBinary(colorBlocks) {
             const pecStitches = [];
             let lastX = 0, lastY = 0;
 
-            blocks.forEach((block, bIdx) => {
+            colorBlocks.forEach((block, bIdx) => {
                 if (bIdx > 0) {
-                    pecStitches.push(0xFE, 0xB0, (bIdx % 8) + 1);
+                    // PEC Color Change Command
+                    pecStitches.push(0xFE, 0xB0, (bIdx % 12) + 1);
                 }
 
-                block.stitches.forEach((pt, pIdx) => {
+                block.stitches.forEach((pt) => {
                     let dx = pt.x - lastX;
                     let dy = pt.y - lastY;
-                    let isJump = pIdx === 0 || Math.abs(dx) > 110 || Math.abs(dy) > 110;
-
-                    encodePecDelta(pecStitches, dx, dy, isJump);
+                    encodePecDelta(pecStitches, dx, dy, pt.isJump);
                     lastX = pt.x;
                     lastY = pt.y;
                 });
             });
 
+            // PEC End of Design
             pecStitches.push(0xFF, 0x00);
 
+            // Build PEC Header Block (512 bytes)
             const pecHeader = new Uint8Array(512);
-            const label = "LA:SHIFTY        ";
+            const label = "LA:VECTOR_EMB    ";
             for (let i = 0; i < label.length; i++) pecHeader[i] = label.charCodeAt(i);
             pecHeader[0x0D] = 0x30;
-            pecHeader[0x1D] = blocks.length;
+            pecHeader[0x1C] = 0x3A;
+            pecHeader[0x1D] = colorBlocks.length - 1;
 
-            blocks.forEach((b, i) => { pecHeader[0x1E + i] = (i % 8) + 1; });
+            colorBlocks.forEach((b, i) => { pecHeader[0x1E + i] = (i % 12) + 1; });
 
+            // PES Container Wrapper
             const pecOffset = 0x200;
             const totalSize = pecOffset + pecHeader.length + pecStitches.length;
             const buffer = new Uint8Array(totalSize);
@@ -1090,6 +1101,7 @@
             const signature = "#PES0001";
             for (let i = 0; i < signature.length; i++) buffer[i] = signature.charCodeAt(i);
 
+            // 4-byte Little Endian PEC Offset Pointer at 0x08
             buffer[0x08] = pecOffset & 0xFF;
             buffer[0x09] = (pecOffset >> 8) & 0xFF;
             buffer[0x0A] = (pecOffset >> 16) & 0xFF;
@@ -1117,8 +1129,8 @@
         }
 
         function hexToRgb(hex) {
-            const normalized = hexToNormalizedHex(hex);
-            const num = parseInt(normalized.replace('#',''), 16);
+            const norm = hexToNormalizedHex(hex);
+            const num = parseInt(norm.replace('#',''), 16);
             return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
         }
 
