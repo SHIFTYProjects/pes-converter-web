@@ -891,30 +891,93 @@
         }
 
         function executeVectorTracing() {
-            let targetImgObj = workingImageObject || canvas.getActiveObject();
-            if (!targetImgObj || targetImgObj.type !== 'image') return;
+    let targetImgObj = workingImageObject || canvas.getActiveObject();
+    if (!targetImgObj || targetImgObj.type !== 'image') return;
 
-            const imgEl = targetImgObj.getElement();
-            const tempCanvas = document.createElement('canvas');
+    // 1. Update the UI to show it's working before the thread locks
+    const btn = document.getElementById('btn-trace-vector');
+    const originalText = btn.innerText;
+    btn.innerText = "Processing Vectors (Please Wait)...";
+    btn.style.background = "#e65100"; 
+    btn.disabled = true;
+
+    // 2. Yield to the browser so the button text actually updates
+    setTimeout(() => {
+        const imgEl = targetImgObj.getElement();
+        
+        // 3. Downscale massive images to prevent browser crashing
+        const MAX_DIMENSION = 800;
+        let procW = imgEl.width;
+        let procH = imgEl.height;
+        
+        if (procW > MAX_DIMENSION || procH > MAX_DIMENSION) {
+            const ratio = Math.min(MAX_DIMENSION / procW, MAX_DIMENSION / procH);
+            procW = Math.round(procW * ratio);
+            procH = Math.round(procH * ratio);
+        }
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = procW; 
+        tempCanvas.height = procH;
+        
+        const ctx = tempCanvas.getContext('2d');
+        ctx.drawImage(imgEl, 0, 0, procW, procH);
+
+        const imageData = ctx.getImageData(0, 0, procW, procH);
+        const numColors = parseInt(document.getElementById('color-count-slider').value);
+        const noiseVal = parseInt(document.getElementById('noise-slider').value);
+
+        // 4. Run the heavy trace
+        const svgString = ImageTracer.imagedataToSVG(imageData, {
+            numberofcolors: numColors,
+            pathomit: noiseVal * 4,
+            blurradius: 0,
+            colorsampling: 2,
+            strokewidth: 0,
+            viewbox: true
+        });
+
+        // 5. Load the result back into Fabric.js
+        fabric.loadSVGFromString(svgString, function(objects, options) {
+            const vectorGroup = fabric.util.groupSVGElements(objects, options);
             
-            tempCanvas.width = imgEl.width; 
-            tempCanvas.height = imgEl.height;
-            
-            const ctx = tempCanvas.getContext('2d');
-            ctx.drawImage(imgEl, 0, 0);
-
-            const imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-            const numColors = parseInt(document.getElementById('color-count-slider').value);
-            const noiseVal = parseInt(document.getElementById('noise-slider').value);
-
-            const svgString = ImageTracer.imagedataToSVG(imageData, {
-                numberofcolors: numColors,
-                pathomit: noiseVal * 4,
-                blurradius: 0,
-                colorsampling: 2,
-                strokewidth: 0,
-                viewbox: true
+            // Scale the resulting vectors to match the on-screen fabric image
+            vectorGroup.set({
+                left: targetImgObj.left,
+                top: targetImgObj.top,
+                scaleX: targetImgObj.scaleX * (imgEl.width / procW),
+                scaleY: targetImgObj.scaleY * (imgEl.height / procH),
+                angle: targetImgObj.angle
             });
+
+            if (workingImageObject) {
+                canvas.remove(workingImageObject);
+                workingImageObject = null; // Clear to prevent re-tracing ghost images
+            }
+            if (currentVectorGroup) {
+                canvas.remove(currentVectorGroup);
+            }
+
+            canvas.add(vectorGroup);
+            canvas.setActiveObject(vectorGroup);
+            currentVectorGroup = vectorGroup;
+
+            extractVectorColors(vectorGroup);
+            document.getElementById('color-mapping-section').style.display = 'block';
+            canvas.renderAll();
+            saveCanvasState();
+            
+            // Restore button state
+            btn.innerText = originalText;
+            btn.style.background = "#2e7d32";
+            btn.disabled = false;
+
+            if (previewActive) {
+                renderStitchPreview();
+            }
+        });
+    }, 50); // 50ms delay is enough for the DOM to repaint the button
+}
 
             fabric.loadSVGFromString(svgString, function(objects, options) {
                 const vectorGroup = fabric.util.groupSVGElements(objects, options);
