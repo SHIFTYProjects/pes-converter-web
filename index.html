@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image to PES Converter</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; text-align: center; background: #1a1a1a; color: #fff; }
+        #drop-zone { border: 2px dashed #00a8ff; padding: 40px; margin: 20px 0; border-radius: 8px; cursor: pointer; }
+        #drop-zone:hover { background: #2a2a2a; }
+        #preview { max-width: 100%; display: none; margin-top: 20px; }
+        button { background: #00a8ff; color: white; border: none; padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 4px; display: none; }
+        button:hover { background: #0082c6; }
+    </style>
+</head>
+<body>
+
+    <h1>PES Digitizer</h1>
+    <p>Upload a solid-color graphic to convert.</p>
+
+    <div id="drop-zone">Drag & Drop Image Here or Click to Upload</div>
+    <input type="file" id="file-input" accept="image/jpeg, image/png" style="display: none;">
+    
+    <canvas id="processing-canvas" style="display:none;"></canvas>
+    <img id="preview" alt="Artwork Preview">
+    
+    <br>
+    <button id="download-btn">Download PES</button>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const preview = document.getElementById('preview');
+        const canvas = document.getElementById('processing-canvas');
+        const ctx = canvas.getContext('2d');
+        const downloadBtn = document.getElementById('download-btn');
+
+        // Handle File Uploads
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFile);
+
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    // Display preview
+                    preview.src = img.src;
+                    preview.style.display = 'block';
+                    
+                    // Draw to hidden canvas to access raw pixel data for tracing
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    
+                    // Show download button
+                    downloadBtn.style.display = 'inline-block';
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Handle PES File Generation and Download
+        downloadBtn.addEventListener('click', () => {
+            // TODO: Add edge-tracing logic and JS-embroidery stitch generation here
+            
+            // For now, we generate a dummy text file with a .pes extension to test the pipeline
+            const dummyData = "PES Mock File Content";
+            const blob = new Blob([dummyData], { type: "application/octet-stream" });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = "shifty_design.pes";
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+    </script>
+</body>
+</html>
