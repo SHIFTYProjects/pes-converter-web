@@ -142,7 +142,7 @@
         <div id="vector-pipeline-section" style="display: none;">
             <h3>3. Background Removal & Vector Tracing</h3>
             
-            <button id="btn-remove-bg" style="background: #ef6c00;">Step 1: Remove White Background</button>
+            <button id="btn-remove-bg" style="background: #ef6c00;">Step 1: Remove Outer Background Only</button>
             
             <div class="control-group" style="margin-top: 6px;">
                 <div class="row" style="justify-content: space-between;">
@@ -160,16 +160,17 @@
                 <input type="range" id="noise-slider" min="1" max="10" value="4">
             </div>
 
-            <button id="btn-trace-vector" style="background: #2e7d32; margin-top: 4px;">Step 2: Trace to Vector Layer</button>
+            <button id="btn-trace-vector" style="background: #2e7d32; margin-top: 4px;">Step 2: Trace & Quantize Vector Layer</button>
         </div>
 
         <!-- COLOR PALETTE MAPPER -->
         <div id="color-mapping-section" style="display: none;">
-            <h3>4. Vector Color Palette Mapping</h3>
+            <h3>4. Vector Color Selector (<span id="vector-color-count">0</span> Colors)</h3>
+            <p style="font-size: 0.75rem; color: #aaa; margin: 0 0 6px 0;">Click a vector color below, then pick a thread color from Section 6 to reassign it in real time:</p>
             <div class="control-group">
                 <div class="row" style="justify-content: space-between; align-items:center;">
-                    <label>Detected Clean Colors (<span id="vector-color-count">0</span>):</label>
-                    <button id="btn-start-over" style="background: #c62828; font-size: 0.75rem; padding: 4px 8px;">Start Over / Reset</button>
+                    <label>Detected Vector Layers:</label>
+                    <button id="btn-start-over" style="background: #c62828; font-size: 0.75rem; padding: 4px 8px;">Reset Artwork</button>
                 </div>
                 <div class="color-map-list" id="color-map-container"></div>
             </div>
@@ -290,6 +291,7 @@
 
         // Original image backup & state
         let originalImageElement = null;
+        let workingImageObject = null;
         let currentVectorGroup = null;
         let selectedColorIndex = null;
         let vectorColorMap = [];
@@ -300,7 +302,7 @@
 
         const canvas = new fabric.Canvas('main-canvas', { 
             selection: true,
-            backgroundColor: 'transparent' // Allow checkerboard CSS pattern to show through
+            backgroundColor: 'transparent'
         });
         const overlayCanvas = document.getElementById('stitch-preview-canvas');
         const overlayCtx = overlayCanvas.getContext('2d');
@@ -314,7 +316,7 @@
 
         function undo() {
             if (undoStack.length > 1) {
-                undoStack.pop(); // Remove current state
+                undoStack.pop();
                 const prevState = undoStack[undoStack.length - 1];
                 isUndoStateLock = true;
                 canvas.loadFromJSON(prevState, () => {
@@ -481,6 +483,7 @@
 
                     canvas.add(fabricImg);
                     canvas.setActiveObject(fabricImg);
+                    workingImageObject = fabricImg;
 
                     document.getElementById('vector-pipeline-section').style.display = 'block';
                     document.getElementById('color-mapping-section').style.display = 'none';
@@ -489,9 +492,9 @@
             reader.readAsDataURL(file);
         });
 
-        // STEP 1: REMOVE WHITE/LIGHT BACKGROUND
+        // STEP 1: CONTIGUOUS OUTER FLOOD-FILL BACKGROUND REMOVAL (Preserves Inner White Details)
         document.getElementById('btn-remove-bg').addEventListener('click', () => {
-            const activeObj = canvas.getActiveObject();
+            let activeObj = canvas.getActiveObject() || workingImageObject;
             if (!activeObj || activeObj.type !== 'image') {
                 alert('Please select an uploaded image layer first.');
                 return;
@@ -499,18 +502,51 @@
 
             const imgEl = activeObj.getElement();
             const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = imgEl.width;
-            tempCanvas.height = imgEl.height;
+            const w = tempCanvas.width = imgEl.width;
+            const h = tempCanvas.height = imgEl.height;
             const ctx = tempCanvas.getContext('2d');
             ctx.drawImage(imgEl, 0, 0);
 
-            const imgData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            const imgData = ctx.getImageData(0, 0, w, h);
             const data = imgData.data;
 
-            // Remove pixels with RGB > 235 (Near White / Canvas)
-            for (let i = 0; i < data.length; i += 4) {
-                if (data[i] > 235 && data[i+1] > 235 && data[i+2] > 235) {
-                    data[i + 3] = 0; // Transparent
+            // Helper to test if a pixel is near white/light background
+            function isLightBgPixel(idx) {
+                return data[idx + 3] > 0 && data[idx] > 220 && data[idx + 1] > 220 && data[idx + 2] > 220;
+            }
+
+            // Breadth-First Flood Fill Queue starting strictly from edges
+            const visited = new Uint8Array(w * h);
+            const queue = [];
+
+            // Add all outer border pixels to seed queue
+            for (let x = 0; x < w; x++) {
+                queue.push(x, 0);
+                queue.push(x, h - 1);
+            }
+            for (let y = 0; y < h; y++) {
+                queue.push(0, y);
+                queue.push(w - 1, y);
+            }
+
+            let qIdx = 0;
+            while (qIdx < queue.length) {
+                const x = queue[qIdx++];
+                const y = queue[qIdx++];
+                const pIdx = y * w + x;
+
+                if (x < 0 || x >= w || y < 0 || y >= h || visited[pIdx]) continue;
+                visited[pIdx] = 1;
+
+                const dataIdx = pIdx * 4;
+                if (isLightBgPixel(dataIdx)) {
+                    data[dataIdx + 3] = 0; // Make transparent
+
+                    // Expand 4-directionally
+                    queue.push(x + 1, y);
+                    queue.push(x - 1, y);
+                    queue.push(x, y + 1);
+                    queue.push(x, y - 1);
                 }
             }
 
@@ -524,25 +560,42 @@
             };
         });
 
-        // SLIDER DISPLAYS
+        // SLIDER DISPLAYS & LIVE RE-TRACING
         document.getElementById('color-count-slider').addEventListener('input', function() {
             document.getElementById('color-count-val').innerText = this.value;
+            triggerLiveVectorTracing();
         });
 
         document.getElementById('noise-slider').addEventListener('input', function() {
             const labels = ['Very Low', 'Low', 'Low-Med', 'Medium', 'Medium', 'High', 'High', 'Aggressive', 'Very Aggressive', 'Maximum'];
             document.getElementById('noise-filter-val').innerText = labels[this.value - 1];
+            triggerLiveVectorTracing();
         });
 
         // STEP 2: RASTER-TO-VECTOR CONVERSION ENGINE
         document.getElementById('btn-trace-vector').addEventListener('click', () => {
-            const activeObj = canvas.getActiveObject();
-            if (!activeObj || activeObj.type !== 'image') {
-                alert('Please select an image on the canvas to trace.');
+            executeVectorTracing();
+        });
+
+        function triggerLiveVectorTracing() {
+            if (currentVectorGroup || workingImageObject) {
+                executeVectorTracing();
+            }
+        }
+
+        function executeVectorTracing() {
+            let targetImgObj = workingImageObject;
+            if (!targetImgObj || targetImgObj.type !== 'image') {
+                const active = canvas.getActiveObject();
+                if (active && active.type === 'image') targetImgObj = active;
+            }
+
+            if (!targetImgObj) {
+                alert('Please select or upload an image to trace.');
                 return;
             }
 
-            const imgEl = activeObj.getElement();
+            const imgEl = targetImgObj.getElement();
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = imgEl.width;
             tempCanvas.height = imgEl.height;
@@ -550,14 +603,13 @@
             ctx.drawImage(imgEl, 0, 0);
 
             const imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-
             const numColors = parseInt(document.getElementById('color-count-slider').value);
             const noiseVal = parseInt(document.getElementById('noise-slider').value);
 
             const traceOptions = {
                 numberofcolors: numColors,
                 pathomit: noiseVal * 4, 
-                blurradius: 1, 
+                blurradius: 0, 
                 colorsampling: 2, 
                 strokewidth: 0, 
                 viewbox: true
@@ -569,14 +621,16 @@
                 const vectorGroup = fabric.util.groupSVGElements(objects, options);
                 
                 vectorGroup.set({
-                    left: activeObj.left,
-                    top: activeObj.top,
-                    scaleX: activeObj.scaleX,
-                    scaleY: activeObj.scaleY,
-                    angle: activeObj.angle
+                    left: targetImgObj.left,
+                    top: targetImgObj.top,
+                    scaleX: targetImgObj.scaleX,
+                    scaleY: targetImgObj.scaleY,
+                    angle: targetImgObj.angle
                 });
 
-                canvas.remove(activeObj);
+                if (workingImageObject) canvas.remove(workingImageObject);
+                if (currentVectorGroup) canvas.remove(currentVectorGroup);
+
                 canvas.add(vectorGroup);
                 canvas.setActiveObject(vectorGroup);
                 currentVectorGroup = vectorGroup;
@@ -587,7 +641,7 @@
                 saveCanvasState();
                 if (previewActive) renderStitchPreview();
             });
-        });
+        }
 
         // EXTRACT CLEAN VECTOR COLORS FROM PATHS
         function extractVectorColors(group) {
@@ -625,11 +679,11 @@
 
                 row.innerHTML = `
                     <div class="color-preview-pair">
-                        <div class="swatch" style="background:${item.origHex};" title="Vectorized Layer Shade"></div>
+                        <div class="swatch" style="background:${item.targetHex};" title="Current Vector Shade"></div>
                         <span>&rarr;</span>
-                        <div class="swatch" style="background:${item.targetHex}; border-color:#00a8ff;" title="Assigned Thread Color"></div>
+                        <span style="font-size:0.8rem; font-weight:bold; color:${item.targetHex};">${item.targetHex.toUpperCase()}</span>
                     </div>
-                    <span style="font-size: 0.75rem; color: #888;">Vector Region #${idx + 1}</span>
+                    <span style="font-size: 0.75rem; color: #888;">Shade #${idx + 1}</span>
                 `;
 
                 row.addEventListener('click', () => {
@@ -642,7 +696,7 @@
             });
         }
 
-        // START OVER / RESET BUTTON
+        // RESET / START OVER
         document.getElementById('btn-start-over').addEventListener('click', () => {
             if (!originalImageElement) return;
 
@@ -657,6 +711,7 @@
 
             canvas.add(fabricImg);
             canvas.setActiveObject(fabricImg);
+            workingImageObject = fabricImg;
 
             document.getElementById('color-mapping-section').style.display = 'none';
             document.getElementById('vector-pipeline-section').style.display = 'block';
