@@ -79,6 +79,7 @@
             <h2>PES Embroidery Studio</h2>
             <button id="btn-undo" style="background:#2a2a2a; border-color:#00a8ff; padding: 4px 10px;" title="Undo Action (Ctrl+Z)" disabled>↶ Undo</button>
         </div>
+        <small style="color:#aaa;">Quick start: choose a hoop, upload artwork, remove its background, vectorize, choose thread colors, then preview and export.</small>
 
         <h3>1. Hoop & Orientation</h3>
         <div class="control-group">
@@ -93,8 +94,8 @@
         </div>
         <div class="control-group">
             <div class="row">
-                <button id="orient-portrait" style="background:#00a8ff;">Portrait</button>
-                <button id="orient-landscape">Landscape</button>
+                <button id="orient-portrait">Portrait</button>
+                <button id="orient-landscape" style="background:#00a8ff;">Landscape (Default)</button>
             </div>
         </div>
 
@@ -130,12 +131,17 @@
 
         <div id="vector-pipeline-section" style="display: none;">
             <h3>3. Vector Tracing Engine</h3>
-            <button id="btn-remove-bg" style="background: #ef6c00;">Step 1: Outer Background Fill Cleanup</button>
+            <button id="btn-remove-bg" style="background: #ef6c00;" title="Removes a solid background connected to the image edges.">Step 1: Remove Outer Background</button>
             
             <div class="control-group" style="margin-top: 6px;">
                 <label>Max Palette Colors: <span id="color-count-val" style="color:#00a8ff; font-weight:bold;">6</span></label>
                 <input type="range" id="color-count-slider" min="2" max="16" value="6">
             </div>
+            <div class="control-group">
+                <label>Combine Similar Colors: <span id="color-merge-val" style="color:#00a8ff; font-weight:bold;">24</span></label>
+                <input type="range" id="color-merge-slider" min="0" max="120" step="4" value="24">
+            </div>
+            <small style="color:#888;">Raise this to merge near-identical shades and reduce thread changes. Set to 0 to keep shades separate.</small>
             <div class="control-group">
                 <label>Speckle / Noise Filter: <span id="noise-filter-val" style="color:#00a8ff; font-weight:bold;">Medium</span></label>
                 <input type="range" id="noise-slider" min="1" max="10" value="4">
@@ -147,6 +153,8 @@
             <h3>4. Vector Layer Colors (<span id="vector-color-count">0</span>)</h3>
             <div class="control-group">
                 <div class="color-map-list" id="color-map-container"></div>
+                <small style="color:#888;">Choose a thread swatch, then combine every traced shade into that thread.</small>
+                <button id="btn-combine-colors" type="button" title="Map every traced shade to the currently selected thread color.">Combine All Shades into Selected Thread</button>
             </div>
         </div>
 
@@ -246,7 +254,7 @@
         };
 
         let currentHoop = { w: 5, h: 7 };
-        let isLandscape = false;
+        let isLandscape = true;
         let activeThreadColor = '#003DA5';
         let zoomLevel = 1.0;
 
@@ -425,67 +433,145 @@
         });
 
         document.getElementById('btn-remove-bg').addEventListener('click', () => {
-            let activeObj = canvas.getActiveObject() || workingImageObject;
-            if (!activeObj || activeObj.type !== 'image') return alert('Select image layer.');
-
-            const imgEl = activeObj.getElement();
-            const nativeW = imgEl.naturalWidth || imgEl.width;
-            const nativeH = imgEl.naturalHeight || imgEl.height;
-
-            const tempCanvas = document.createElement('canvas');
-            const w = tempCanvas.width = nativeW, h = tempCanvas.height = nativeH;
-            const ctx = tempCanvas.getContext('2d');
-            ctx.drawImage(imgEl, 0, 0, w, h);
-
-            const imgData = ctx.getImageData(0, 0, w, h);
-            const data = imgData.data;
-
-            const bgR = data[0], bgG = data[1], bgB = data[2], bgA = data[3];
-            const isBgWhite = bgA === 0 || (bgR > 200 && bgG > 200 && bgB > 200);
-            const tR = isBgWhite ? 255 : bgR;
-            const tG = isBgWhite ? 255 : bgG;
-            const tB = isBgWhite ? 255 : bgB;
-
-            const visited = new Uint8Array(w * h);
-            const queue = [];
-            for (let x = 0; x < w; x++) { queue.push(x, 0, x, h - 1); }
-            for (let y = 0; y < h; y++) { queue.push(0, y, w - 1, y); }
-
-            let qIdx = 0;
-            while (qIdx < queue.length) {
-                const x = queue[qIdx++], y = queue[qIdx++];
-                if (x < 0 || x >= w || y < 0 || y >= h) continue;
-                
-                const pIdx = y * w + x;
-                if (visited[pIdx]) continue;
-                visited[pIdx] = 1;
-
-                const dataIdx = pIdx * 4;
-                if (data[dataIdx + 3] > 0 && 
-                    Math.abs(data[dataIdx] - tR) < 35 && 
-                    Math.abs(data[dataIdx + 1] - tG) < 35 && 
-                    Math.abs(data[dataIdx + 2] - tB) < 35) {
-                    
-                    data[dataIdx + 3] = 0;
-                    queue.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
-                }
+            const selectedObject = canvas.getActiveObject();
+            const activeObj = selectedObject && selectedObject.type === 'image'
+                ? selectedObject
+                : (workingImageObject && canvas.getObjects().includes(workingImageObject)
+                    ? workingImageObject
+                    : canvas.getObjects().find(object => object.type === 'image'));
+            if (!activeObj) {
+                alert('Upload an image before removing its background.');
+                return;
             }
 
-            ctx.putImageData(imgData, 0, 0);
-            const cleanedImg = new Image();
-            cleanedImg.onload = function() {
-                activeObj.setSrc(cleanedImg.src, function() {
+            try {
+                const imgEl = activeObj.getElement();
+                const sourceW = imgEl.naturalWidth || imgEl.width;
+                const sourceH = imgEl.naturalHeight || imgEl.height;
+                if (!sourceW || !sourceH) throw new Error('The selected image has no readable pixels.');
+                const processingScale = Math.min(1, 2400 / sourceW, 2400 / sourceH);
+                const w = Math.max(1, Math.round(sourceW * processingScale));
+                const h = Math.max(1, Math.round(sourceH * processingScale));
+
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = w;
+                tempCanvas.height = h;
+                const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
+                if (!ctx) throw new Error('Could not create an image processing canvas.');
+                ctx.drawImage(imgEl, 0, 0, sourceW, sourceH, 0, 0, w, h);
+
+                const imgData = ctx.getImageData(0, 0, w, h);
+                const data = imgData.data;
+                const cornerIndices = [0, w - 1, (h - 1) * w, h * w - 1];
+                const corners = cornerIndices.map(index => ({
+                    index,
+                    r: data[index * 4],
+                    g: data[index * 4 + 1],
+                    b: data[index * 4 + 2],
+                    a: data[index * 4 + 3]
+                }));
+
+                const opaqueCorners = corners.filter(corner => corner.a >= 16);
+                if (opaqueCorners.length === 0) {
+                    alert('The image already has a transparent background.');
+                    return;
+                }
+
+                const background = opaqueCorners.reduce((best, candidate) => {
+                    const score = opaqueCorners.reduce((sum, corner) =>
+                        sum + (corner.r - candidate.r) ** 2 +
+                            (corner.g - candidate.g) ** 2 +
+                            (corner.b - candidate.b) ** 2, 0);
+                    return !best || score < best.score ? { ...candidate, score } : best;
+                }, null);
+                const tolerance = 64;
+                const toleranceSquared = tolerance * tolerance;
+                const visited = new Uint8Array(w * h);
+                const queue = new Int32Array(w * h);
+                let head = 0, tail = 0, removedPixels = 0;
+
+                const matchesBackground = index => {
+                    const offset = index * 4;
+                    const dr = data[offset] - background.r;
+                    const dg = data[offset + 1] - background.g;
+                    const db = data[offset + 2] - background.b;
+                    return data[offset + 3] > 0 && dr * dr + dg * dg + db * db <= toleranceSquared;
+                };
+                const enqueueIfBackground = index => {
+                    if (index < 0 || index >= w * h || visited[index]) return;
+                    visited[index] = 1;
+                    if (data[index * 4 + 3] < 16 || matchesBackground(index)) queue[tail++] = index;
+                };
+
+                for (let x = 0; x < w; x++) {
+                    enqueueIfBackground(x);
+                    enqueueIfBackground((h - 1) * w + x);
+                }
+                for (let y = 1; y < h - 1; y++) {
+                    enqueueIfBackground(y * w);
+                    enqueueIfBackground(y * w + w - 1);
+                }
+
+                while (head < tail) {
+                    const index = queue[head++];
+                    const offset = index * 4;
+                    if (data[offset + 3] === 0) {
+                        if (index % w > 0) enqueueIfBackground(index - 1);
+                        if (index % w < w - 1) enqueueIfBackground(index + 1);
+                        if (index >= w) enqueueIfBackground(index - w);
+                        if (index < (h - 1) * w) enqueueIfBackground(index + w);
+                        continue;
+                    }
+                    const dr = data[offset] - background.r;
+                    const dg = data[offset + 1] - background.g;
+                    const db = data[offset + 2] - background.b;
+                    const distance = Math.sqrt(dr * dr + dg * dg + db * db);
+                    const featherStart = tolerance * 0.7;
+                    if (distance <= featherStart) {
+                        data[offset + 3] = 0;
+                    } else {
+                        data[offset + 3] = Math.round(
+                            data[offset + 3] * (distance - featherStart) / (tolerance - featherStart)
+                        );
+                    }
+                    removedPixels++;
+                    if (index % w > 0) enqueueIfBackground(index - 1);
+                    if (index % w < w - 1) enqueueIfBackground(index + 1);
+                    if (index >= w) enqueueIfBackground(index - w);
+                    if (index < (h - 1) * w) enqueueIfBackground(index + w);
+                }
+
+                if (removedPixels === 0) {
+                    alert('No solid background connected to the image edges was found.');
+                    return;
+                }
+
+                ctx.putImageData(imgData, 0, 0);
+                activeObj.setSrc(tempCanvas.toDataURL('image/png'), () => {
+                    activeObj.set({
+                        scaleX: activeObj.scaleX * sourceW / w,
+                        scaleY: activeObj.scaleY * sourceH / h
+                    });
+                    activeObj.setCoords();
+                    canvas.setActiveObject(activeObj);
                     canvas.renderAll();
                     saveCanvasState();
+                    if (previewActive) renderStitchPreview();
                 });
-            };
-            cleanedImg.src = tempCanvas.toDataURL();
+            } catch (error) {
+                console.error('Background removal failed:', error);
+                alert(`Background removal failed: ${error.message}`);
+            }
         });
 
         document.getElementById('color-count-slider').addEventListener('input', function() {
             document.getElementById('color-count-val').innerText = this.value;
         });
         document.getElementById('color-count-slider').addEventListener('change', triggerLiveVectorTracing);
+        document.getElementById('color-merge-slider').addEventListener('input', function() {
+            document.getElementById('color-merge-val').innerText = this.value;
+        });
+        document.getElementById('color-merge-slider').addEventListener('change', triggerLiveVectorTracing);
 
         document.getElementById('noise-slider').addEventListener('input', function() {
             const labels = ['Very Low', 'Low', 'Low-Med', 'Medium', 'Medium', 'High', 'High', 'Aggressive', 'Very Aggressive', 'Maximum'];
@@ -552,28 +638,42 @@
             }
             if(pixels.length === 0) return;
 
-            let clusters = [];
-            for (let i = 0; i < numColors; i++) {
-                const idx = Math.floor((i / numColors) * pixels.length);
-                const p = pixels[idx];
-                clusters.push({ r: p.r, g: p.g, b: p.b });
+            let clusters = [{ r: pixels[0].r, g: pixels[0].g, b: pixels[0].b }];
+            while (clusters.length < Math.min(numColors, pixels.length)) {
+                let farthestPixel = null;
+                let farthestDistance = -1;
+                for (const pixel of pixels) {
+                    let nearestDistance = Infinity;
+                    for (const cluster of clusters) {
+                        const dr = pixel.r - cluster.r;
+                        const dg = pixel.g - cluster.g;
+                        const db = pixel.b - cluster.b;
+                        nearestDistance = Math.min(nearestDistance, dr * dr + dg * dg + db * db);
+                    }
+                    if (nearestDistance > farthestDistance) {
+                        farthestDistance = nearestDistance;
+                        farthestPixel = pixel;
+                    }
+                }
+                if (!farthestPixel || farthestDistance === 0) break;
+                clusters.push({ r: farthestPixel.r, g: farthestPixel.g, b: farthestPixel.b });
             }
 
             const pixelLabels = new Int32Array(procW * procH).fill(-1);
 
             for (let iter = 0; iter < 4; iter++) {
-                const sums = Array(numColors).fill(0).map(() => ({r:0, g:0, b:0, count:0}));
+                const sums = Array(clusters.length).fill(0).map(() => ({r:0, g:0, b:0, count:0}));
                 for (let i = 0; i < pixels.length; i++) {
                     const p = pixels[i];
                     let minDist = Infinity, bestC = 0;
-                    for (let c = 0; c < numColors; c++) {
+                    for (let c = 0; c < clusters.length; c++) {
                         const d = Math.abs(p.r - clusters[c].r) + Math.abs(p.g - clusters[c].g) + Math.abs(p.b - clusters[c].b);
                         if (d < minDist) { minDist = d; bestC = c; }
                     }
                     pixelLabels[p.index] = bestC;
                     sums[bestC].r += p.r; sums[bestC].g += p.g; sums[bestC].b += p.b; sums[bestC].count++;
                 }
-                for (let c = 0; c < numColors; c++) {
+                for (let c = 0; c < clusters.length; c++) {
                     if (sums[c].count > 0) {
                         clusters[c].r = Math.floor(sums[c].r / sums[c].count);
                         clusters[c].g = Math.floor(sums[c].g / sums[c].count);
@@ -582,12 +682,41 @@
                 }
             }
 
+            let finalClusters = clusters.map(cluster => ({ ...cluster }));
+            const mergeTolerance = parseInt(document.getElementById('color-merge-slider').value, 10);
+            if (mergeTolerance > 0) {
+                const mergedClusters = [];
+                for (const cluster of finalClusters) {
+                    const matchingCluster = mergedClusters.find(existing =>
+                        Math.hypot(cluster.r - existing.r, cluster.g - existing.g, cluster.b - existing.b) <= mergeTolerance
+                    );
+                    if (!matchingCluster) mergedClusters.push(cluster);
+                }
+                finalClusters = mergedClusters;
+            }
+            clusters = finalClusters;
+            for (const pixel of pixels) {
+                let nearestCluster = 0;
+                let nearestDistance = Infinity;
+                for (let c = 0; c < clusters.length; c++) {
+                    const dr = pixel.r - clusters[c].r;
+                    const dg = pixel.g - clusters[c].g;
+                    const db = pixel.b - clusters[c].b;
+                    const distance = dr * dr + dg * dg + db * db;
+                    if (distance < nearestDistance) {
+                        nearestDistance = distance;
+                        nearestCluster = c;
+                    }
+                }
+                pixelLabels[pixel.index] = nearestCluster;
+            }
+
             const polygons = [];
             const scaleX = imgObj.scaleX * (nativeW / procW);
             const scaleY = imgObj.scaleY * (nativeH / procH);
             const noiseTolerance = parseInt(document.getElementById('noise-slider').value) / 2;
 
-            for (let c = 0; c < numColors; c++) {
+            for (let c = 0; c < clusters.length; c++) {
                 const r = Math.round(clusters[c].r) || 0;
                 const g = Math.round(clusters[c].g) || 0;
                 const b = Math.round(clusters[c].b) || 0;
@@ -723,40 +852,6 @@
                 if (contour.length >= 3) contours.push(contour);
             }
             return contours;
-        }
-
-        function traceMoore(grid, visited, w, h, startX, startY) {
-            const contour = [];
-            let currX = startX, currY = startY;
-            const dx = [0, 1, 1, 1, 0, -1, -1, -1];
-            const dy = [-1, -1, 0, 1, 1, 1, 0, -1];
-            let enterDir = 0; 
-
-            for (let step = 0; step < 10000; step++) { 
-                contour.push({ x: currX, y: currY });
-                visited[currY * w + currX] = 1;
-
-                if (step > 0 && currX === startX && currY === startY) break;
-
-                let foundNext = false;
-                let checkDir = (enterDir + 2) % 8; 
-
-                for (let i = 0; i < 8; i++) {
-                    const dir = (checkDir + i) % 8;
-                    const nx = currX + dx[dir];
-                    const ny = currY + dy[dir];
-                    
-                    if (nx >= 0 && nx < w && ny >= 0 && ny < h && grid[ny * w + nx]) {
-                        currX = nx;
-                        currY = ny;
-                        enterDir = (dir + 4) % 8; 
-                        foundNext = true;
-                        break;
-                    }
-                }
-                if (!foundNext) break; 
-            }
-            return contour;
         }
 
         function simplifyOpenPath(points, tolerance) {
@@ -922,6 +1017,28 @@
                     if (previewActive) renderStitchPreview();
                 }
             });
+        });
+
+        document.getElementById('btn-combine-colors').addEventListener('click', () => {
+            const group = canvas.getActiveObject()?.type === 'group'
+                ? canvas.getActiveObject()
+                : currentVectorGroup;
+            if (!group || !canvas.getObjects().includes(group)) {
+                alert('Vectorize an image and select its vector layer before combining colors.');
+                return;
+            }
+
+            const updateFills = object => {
+                if (object.originalFill) object.set('fill', activeThreadColor);
+                if (object._objects) object._objects.forEach(updateFills);
+            };
+            updateFills(group);
+            vectorColorMap.forEach(item => { item.targetHex = activeThreadColor; });
+            currentVectorGroup = group;
+            renderVectorColorMapUI();
+            canvas.renderAll();
+            saveCanvasState();
+            if (previewActive) renderStitchPreview();
         });
 
         document.getElementById('btn-delete').addEventListener('click', () => {
