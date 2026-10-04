@@ -1525,7 +1525,7 @@ json.dumps({
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       if (new TextDecoder().decode(bytes.slice(0, 8)) !== "#PES0001") throw new Error("The PES writer returned an invalid file signature.");
       if (bytes.length < 600) throw new Error("The PES writer returned an incomplete file.");
-      download(new Blob([bytes], { type: "application/octet-stream" }), "stitch-studio-design.pes");
+      download(new Blob([bytes], { type: "application/octet-stream" }), "SHIFTY-studio-design.pes");
       message(`PES v1 generated and reopened for validation (${result.bytes.toLocaleString()} bytes, ${result.stitches.toLocaleString()} commands, ${result.threads} threads). Verify in Brother software and test on scrap fabric before sewing.`, "ok");
     } catch (error) {
       console.error(error);
