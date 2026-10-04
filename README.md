@@ -2,7 +2,8 @@
 Brother Emboidery Machine Stitch Creator
 
 
-WORK IN PROGRESS - Works kind of.
+WORK IN PROGRESS - Beta Testing Phase.
+
 
 Web App URL
 https://shiftyprojects.github.io/pes-converter-web/
