@@ -8,7 +8,7 @@
   const objectRoot = $("#objects");
   const selectionRoot = $("#selection-layer");
   const statusEl = $("#status");
-  const hoopSizes = { "4x4": [4, 4], "5x7": [7, 5] };
+  const hoopSizes = { "4x4": [4, 4], "7x5": [7, 5], "12x5": [12, 5] };
   const state = {
     objects: [], selectedId: null, selectedRegion: null, tool: "select", color: "#315ce8",
     hoopW: 7, hoopH: 5, zoom: 1, viewX: 0, viewY: 0, drawing: null, drag: null, pan: null, spaceDown: false, history: [],
@@ -80,9 +80,11 @@
         const path = node("path", { d: region.d });
         svg.appendChild(path);
         const box = path.getBBox();
-        if (box.width > 0 && box.height > 0) {
-          minX = Math.min(minX, box.x); minY = Math.min(minY, box.y);
-          maxX = Math.max(maxX, box.x + box.width); maxY = Math.max(maxY, box.y + box.height);
+        const brushRadius = (Number(region.brushWidth) || 0) / 2;
+        if ((box.width > 0 || brushRadius > 0) && (box.height > 0 || brushRadius > 0)) {
+          minX = Math.min(minX, box.x - brushRadius); minY = Math.min(minY, box.y - brushRadius);
+          maxX = Math.max(maxX, box.x + box.width + brushRadius);
+          maxY = Math.max(maxY, box.y + box.height + brushRadius);
         }
         path.remove();
       }
@@ -175,9 +177,43 @@
     const settings = state.gapFillSettings.get(color);
     return Boolean(settings && (settings.strokeMm > 0 || settings.smoothMm > 0));
   }
+  function strokePath(points, mapPoint = (point) => point) {
+    const mapped = points.map(mapPoint);
+    const format = (point) => `${point.x.toFixed(3)} ${point.y.toFixed(3)}`;
+    if (mapped.length === 1) return `M${format(mapped[0])} L${format(mapped[0])}`;
+    let d = `M${format(mapped[0])}`;
+    for (let i = 0; i < mapped.length - 1; i++) {
+      const previous = mapped[Math.max(0, i - 1)];
+      const current = mapped[i];
+      const next = mapped[i + 1];
+      const following = mapped[Math.min(mapped.length - 1, i + 2)];
+      const control1 = {
+        x: current.x + (next.x - previous.x) / 6,
+        y: current.y + (next.y - previous.y) / 6
+      };
+      const control2 = {
+        x: next.x - (following.x - current.x) / 6,
+        y: next.y - (following.y - current.y) / 6
+      };
+      d += ` C${format(control1)} ${format(control2)} ${format(next)}`;
+    }
+    return d;
+  }
   function regionPath(obj, region, index) {
-    const path = node("path", { d: region.d, fill: region.fill, "data-region-index": index, class: "region", "pointer-events": "all" });
-    if (hasEdgeAdjustment(region.fill)) path.setAttribute("fill-opacity", "0");
+    const brushWidth = Number(region.brushWidth) || 0;
+    const attrs = {
+      d: region.d, fill: brushWidth ? "none" : region.fill,
+      "data-region-index": index, class: "region", "pointer-events": "all"
+    };
+    if (brushWidth) {
+      attrs.stroke = region.fill; attrs["stroke-width"] = brushWidth;
+      attrs["stroke-linecap"] = "round"; attrs["stroke-linejoin"] = "round";
+    }
+    const path = node("path", attrs);
+    if (hasEdgeAdjustment(region.fill)) {
+      path.setAttribute("fill-opacity", "0");
+      if (brushWidth) path.setAttribute("stroke-opacity", "0");
+    }
     path.style.cursor = state.tool === "fill" || state.tool === "remove" ? "crosshair" : "inherit";
     return path;
   }
@@ -207,9 +243,15 @@
     } else if (obj.type === "shape" || obj.type === "draw") {
       if (state.hiddenColors.has(obj.fill)) return;
       const adjusted = hasEdgeAdjustment(obj.fill);
+      const brushWidth = obj.type === "draw" ? Number(obj.brushWidth) || 0 : 0;
       const path = node("path", {
-        d: obj.d, fill: obj.fill, "fill-opacity": adjusted ? "0" : "1",
-        stroke: obj.stroke || "none", "stroke-width": obj.strokeWidth || .02, "data-object-part": "shape"
+        d: obj.d, fill: brushWidth ? "none" : obj.fill, "fill-opacity": adjusted ? "0" : "1",
+        stroke: brushWidth ? obj.fill : obj.stroke || "none",
+        "stroke-width": brushWidth || obj.strokeWidth || .02,
+        "stroke-linecap": brushWidth ? "round" : "butt",
+        "stroke-linejoin": brushWidth ? "round" : "miter",
+        "stroke-opacity": adjusted && brushWidth ? "0" : "1",
+        "data-object-part": "shape"
       });
       group.appendChild(path);
     }
@@ -243,16 +285,16 @@
           stage.querySelector("defs").appendChild(filter);
           group.setAttribute("filter", `url(#${filterId})`);
         }
-        const appendPreviewPath = (d, parent = group) => {
+        const appendPreviewPath = (d, parent = group, brushWidth = 0) => {
           parent.appendChild(node("path", {
-            d, fill: color, "fill-opacity": "1", stroke: color,
-            "stroke-width": strokeWidth, "stroke-linejoin": "round", "stroke-linecap": "round"
+            d, fill: brushWidth ? "none" : color, "fill-opacity": "1", stroke: color,
+            "stroke-width": brushWidth + strokeWidth, "stroke-linejoin": "round", "stroke-linecap": "round"
           }));
         };
         if (obj.type === "image") {
           const content = node("g", { transform: `translate(${-Number(obj.cropX || 0)} ${-Number(obj.cropY || 0)})` });
           for (const region of obj.regions) {
-            if (region.fill === color) appendPreviewPath(region.d, content);
+            if (region.fill === color) appendPreviewPath(region.d, content, Number(region.brushWidth) || 0);
           }
           group.appendChild(content);
         } else if (obj.type === "text" && obj.fill === color) {
@@ -264,7 +306,7 @@
           text.textContent = obj.text;
           group.appendChild(text);
         } else if ((obj.type === "shape" || obj.type === "draw") && obj.fill === color) {
-          appendPreviewPath(obj.d);
+          appendPreviewPath(obj.d, group, obj.type === "draw" ? Number(obj.brushWidth) || 0 : 0);
         }
         if (group.childNodes.length) root.appendChild(group);
       }
@@ -618,6 +660,15 @@
     if (event.button === 1 || state.spaceDown) { startPan(event); return; }
     const p = svgPoint(event);
     if (state.tool === "draw" || state.tool === "rect" || state.tool === "ellipse") {
+      if (state.tool === "draw") {
+        const targetGroup = target.closest("[data-object-id]");
+        const targetObject = state.objects.find((item) => item.id === targetGroup?.dataset.objectId);
+        if (targetObject?.type === "image") {
+          state.selectedId = targetObject.id;
+          state.selectedRegion = null;
+          render();
+        }
+      }
       state.drawing = { start: p, points: [p], type: state.tool };
       stage.setPointerCapture(event.pointerId);
       return;
@@ -714,8 +765,10 @@
       const x0 = Math.min(start.x, end.x), y0 = Math.min(start.y, end.y);
       const width = Math.max(.05, Math.abs(end.x - start.x)), height = Math.max(.05, Math.abs(end.y - start.y));
       snapshot();
-      if (drawing.type === "draw" && drawing.points.length > 2) {
+      if (drawing.type === "draw") {
         const points = drawing.points.filter((p, index, list) => !index || Math.hypot(p.x - list[index - 1].x, p.y - list[index - 1].y) >= .01);
+        if (points.length && Math.hypot(end.x - points[points.length - 1].x, end.y - points[points.length - 1].y) > .003) points.push(end);
+        const brushWidthMm = Number($("#brush-size").value);
         const imageObj = selectedObject();
         if (imageObj?.type === "image") {
           const radians = (imageObj.rotation || 0) * Math.PI / 180;
@@ -728,20 +781,26 @@
                 + (-dx * Math.sin(radians) + dy * Math.cos(radians)) / imageObj.height * imageObj.baseH
             };
           };
-          const d = points.map((point, index) => {
+          const d = strokePath(points, (point) => {
             const local = localPoint(point);
-                return `${index ? "L" : "M"}${(local.x - Number(imageObj.cropX || 0)).toFixed(3)} ${(local.y - Number(imageObj.cropY || 0)).toFixed(3)}`;
-          }).join(" ") + " Z";
-          imageObj.regions.push({ d, fill: state.color });
-              refreshImageCrop(imageObj);
+            return local;
+          });
+          const brushWidth = brushWidthMm / 25.4 * imageObj.baseW / imageObj.width;
+          imageObj.regions.push({ d, fill: state.color, brushWidth });
+          refreshImageCrop(imageObj);
           state.selectedRegion = { id: imageObj.id, index: imageObj.regions.length - 1 };
-          message("Touch-up added to the selected traced image as a color region.", "ok");
+          message("Brush stroke added to the selected traced image as a filled region of the active thread color.", "ok");
         } else {
-          const minX = Math.min(...points.map((p) => p.x)), minY = Math.min(...points.map((p) => p.y));
-          const maxX = Math.max(...points.map((p) => p.x)), maxY = Math.max(...points.map((p) => p.y));
-          const w = Math.max(.05, maxX - minX), h = Math.max(.05, maxY - minY);
-          const d = points.map((p, i) => `${i ? "L" : "M"}${(p.x - minX).toFixed(4)} ${(p.y - minY).toFixed(4)}`).join(" ") + " Z";
-          state.objects.push(makeVectorObject("draw", minX + w / 2, minY + h / 2, w, h, state.color, d, "Freeform path"));
+          const radius = brushWidthMm / 25.4 / 2;
+          const minX = Math.min(...points.map((p) => p.x)) - radius;
+          const minY = Math.min(...points.map((p) => p.y)) - radius;
+          const maxX = Math.max(...points.map((p) => p.x)) + radius;
+          const maxY = Math.max(...points.map((p) => p.y)) + radius;
+          const w = maxX - minX, h = maxY - minY;
+          const d = strokePath(points, (point) => ({ x: point.x - minX, y: point.y - minY }));
+          const brush = makeVectorObject("draw", minX + w / 2, minY + h / 2, w, h, state.color, d, "Brush stroke");
+          brush.brushWidth = brushWidthMm / 25.4;
+          state.objects.push(brush);
         }
       } else if (drawing.type === "rect" || drawing.type === "ellipse") {
         const d = drawing.type === "rect"
@@ -781,8 +840,12 @@
     if (!d) return;
     const end = d.current || d.start;
     if (d.type === "draw") {
-      const path = d.points.map((p, i) => `${i ? "L" : "M"}${p.x} ${p.y}`).join(" ");
-      selectionRoot.appendChild(node("path", { d: path, fill: "none", stroke: state.color, "stroke-width": .025, "pointer-events": "none" }));
+      const path = strokePath(d.points);
+      const width = Number($("#brush-size").value) / 25.4;
+      selectionRoot.appendChild(node("path", {
+        d: path, fill: "none", stroke: state.color, "stroke-width": width,
+        "stroke-linecap": "round", "stroke-linejoin": "round", "pointer-events": "none"
+      }));
     } else {
       const x = Math.min(d.start.x, end.x), y = Math.min(d.start.y, end.y), w = Math.abs(end.x - d.start.x), h = Math.abs(end.y - d.start.y);
       const shape = d.type === "rect" ? node("rect", { x, y, width: w, height: h }) : node("ellipse", { cx: x + w / 2, cy: y + h / 2, rx: w / 2, ry: h / 2 });
@@ -986,8 +1049,8 @@
     changed();
   }
   function setHoop(width, height) {
-    if (!(width >= 1 && height >= 1 && fitsPe900Hoop(width, height))) {
-      message("The PE900 embroidery area is limited to 5 × 7 inches; custom areas must stay within that boundary.", "error");
+    if (!(Number.isFinite(width) && Number.isFinite(height) && width >= 1 && height >= 1 && width <= 12 && height <= 12)) {
+      message("Canvas dimensions must each be between 1 and 12 inches.", "error");
       $("#custom-width").value = state.hoopW; $("#custom-height").value = state.hoopH;
       return;
     }
@@ -1082,14 +1145,19 @@
     const gRoot = node("g");
     for (const obj of state.objects) {
       const group = node("g", { transform: transformFor(obj) });
-      const colorPath = (d, fill, parent = group) => {
+      const colorPath = (d, fill, parent = group, brushWidth = 0) => {
         if (fill !== color) return;
-        parent.appendChild(node("path", { d, fill }));
+        parent.appendChild(node("path", {
+          d, fill: brushWidth ? "none" : fill,
+          stroke: brushWidth ? fill : "none",
+          "stroke-width": brushWidth,
+          "stroke-linecap": "round", "stroke-linejoin": "round"
+        }));
       };
       if (obj.type === "image") {
         const content = node("g", { transform: `translate(${-Number(obj.cropX || 0)} ${-Number(obj.cropY || 0)})` });
         for (const region of obj.regions) {
-          if (region.fill === color) colorPath(region.d, region.fill, content);
+          if (region.fill === color) colorPath(region.d, region.fill, content, Number(region.brushWidth) || 0);
         }
         group.appendChild(content);
       } else if (obj.type === "text") {
@@ -1100,7 +1168,7 @@
           });
           text.textContent = obj.text; group.appendChild(text);
         }
-      } else colorPath(obj.d, obj.fill);
+      } else colorPath(obj.d, obj.fill, group, obj.type === "draw" ? Number(obj.brushWidth) || 0 : 0);
       if (group.childNodes.length) gRoot.appendChild(group);
     }
     root.appendChild(gRoot);
@@ -1391,6 +1459,11 @@ json.dumps({
   });
   $("#custom-width").addEventListener("change", () => setHoop(Number($("#custom-width").value), Number($("#custom-height").value)));
   $("#custom-height").addEventListener("change", () => setHoop(Number($("#custom-width").value), Number($("#custom-height").value)));
+  $("#brush-size").addEventListener("input", (event) => {
+    const size = Number(event.target.value);
+    $("#brush-size-label").textContent = `${size.toFixed(1)} mm`;
+    if (state.drawing?.type === "draw") drawShapeGhost();
+  });
   $("#trace-colors").addEventListener("change", () => {
     if (selectedObject()?.type === "image") message("Color count changed. Retrace the selected image to apply it.", "info");
   });
