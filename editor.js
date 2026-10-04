@@ -41,7 +41,9 @@
   function uid() { return "shape-" + idCounter++; }
   function node(tag, attrs = {}) {
     const element = document.createElementNS(NS, tag);
-    for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, String(value));
+    for (const [key, value] of Object.entries(attrs)) {
+      if (value !== null && value !== undefined) element.setAttribute(key, String(value));
+    }
     return element;
   }
   function safeColor(value) {
@@ -214,6 +216,27 @@
     path.style.cursor = state.tool === "fill" || state.tool === "remove" ? "crosshair" : "inherit";
     return path;
   }
+  function appendObjectMask(parent, obj, prefix) {
+    if (!Array.isArray(obj.erasures) || !obj.erasures.length) return null;
+    const id = `${prefix}-${obj.id}-erasures`;
+    const width = obj.type === "image" ? Number(obj.naturalW) || obj.baseW : obj.baseW;
+    const height = obj.type === "image" ? Number(obj.naturalH) || obj.baseH : obj.baseH;
+    const defs = node("defs");
+    const mask = node("mask", {
+      id, x: 0, y: 0, width, height,
+      maskUnits: "userSpaceOnUse", maskContentUnits: "userSpaceOnUse", "mask-type": "luminance"
+    });
+    mask.appendChild(node("rect", { x: 0, y: 0, width, height, fill: "white" }));
+    for (const erasure of obj.erasures) {
+      mask.appendChild(node("path", {
+        d: erasure.d, fill: "none", stroke: "black", "stroke-width": erasure.width,
+        "stroke-linecap": "round", "stroke-linejoin": "round"
+      }));
+    }
+    defs.appendChild(mask);
+    parent.appendChild(defs);
+    return `url(#${id})`;
+  }
   function renderObject(obj) {
     const group = node("g", {
       "data-object-id": obj.id,
@@ -221,13 +244,17 @@
       "pointer-events": "visiblePainted"
     });
     if (obj.type === "image") {
-      const content = node("g", { transform: `translate(${-Number(obj.cropX || 0)} ${-Number(obj.cropY || 0)})` });
+      const content = node("g", {
+        transform: `translate(${-Number(obj.cropX || 0)} ${-Number(obj.cropY || 0)})`,
+        mask: appendObjectMask(group, obj, "canvas")
+      });
       obj.regions.forEach((region, index) => {
         if (!state.hiddenColors.has(region.fill)) content.appendChild(regionPath(obj, region, index));
       });
       group.appendChild(content);
     } else if (obj.type === "text") {
       if (state.hiddenColors.has(obj.fill)) return;
+      const content = node("g", { mask: appendObjectMask(group, obj, "canvas") });
       const text = node("text", {
         x: obj.baseW / 2, y: obj.baseH * .73, "text-anchor": "middle",
         "font-family": obj.font || "Arial", "font-size": obj.sizeIn || .4,
@@ -236,9 +263,11 @@
         "data-object-part": "text"
       });
       text.textContent = obj.text;
-      group.appendChild(text);
+      content.appendChild(text);
+      group.appendChild(content);
     } else if (obj.type === "shape" || obj.type === "draw") {
       if (state.hiddenColors.has(obj.fill)) return;
+      const content = node("g", { mask: appendObjectMask(group, obj, "canvas") });
       const adjusted = hasEdgeAdjustment(obj.fill);
       const brushWidth = obj.type === "draw" ? Number(obj.brushWidth) || 0 : 0;
       const path = node("path", {
@@ -250,7 +279,8 @@
         "stroke-opacity": adjusted && brushWidth ? "0" : "1",
         "data-object-part": "shape"
       });
-      group.appendChild(path);
+      content.appendChild(path);
+      group.appendChild(content);
     }
     objectRoot.appendChild(group);
   }
@@ -260,8 +290,10 @@
     stage.querySelectorAll("[data-edge-filter]").forEach((filter) => filter.remove());
     const colors = allColors().filter((color) => !state.hiddenColors.has(color) && hasEdgeAdjustment(color));
     let filterIndex = 0;
+    let previewIndex = 0;
     for (const obj of state.objects) {
       for (const color of colors) {
+        const previewId = previewIndex++;
         const settings = state.gapFillSettings.get(color);
         const scaleX = obj.width / (obj.baseW || obj.width);
         const scaleY = obj.height / (obj.baseH || obj.height);
@@ -289,21 +321,28 @@
           }));
         };
         if (obj.type === "image") {
-          const content = node("g", { transform: `translate(${-Number(obj.cropX || 0)} ${-Number(obj.cropY || 0)})` });
+          const content = node("g", {
+            transform: `translate(${-Number(obj.cropX || 0)} ${-Number(obj.cropY || 0)})`,
+            mask: appendObjectMask(group, obj, `edge-preview-${previewId}`)
+          });
           for (const region of obj.regions) {
             if (region.fill === color) appendPreviewPath(region.d, content, Number(region.brushWidth) || 0);
           }
           group.appendChild(content);
         } else if (obj.type === "text" && obj.fill === color) {
+          const content = node("g", { mask: appendObjectMask(group, obj, `edge-preview-${previewId}`) });
           const text = node("text", {
             x: obj.baseW / 2, y: obj.baseH * .73, "text-anchor": "middle",
             "font-family": obj.font || "Arial", "font-size": obj.sizeIn, fill: color,
             stroke: color, "stroke-width": strokeWidth
           });
           text.textContent = obj.text;
-          group.appendChild(text);
+          content.appendChild(text);
+          group.appendChild(content);
         } else if ((obj.type === "shape" || obj.type === "draw") && obj.fill === color) {
-          appendPreviewPath(obj.d, group, obj.type === "draw" ? Number(obj.brushWidth) || 0 : 0);
+          const content = node("g", { mask: appendObjectMask(group, obj, `edge-preview-${previewId}`) });
+          appendPreviewPath(obj.d, content, obj.type === "draw" ? Number(obj.brushWidth) || 0 : 0);
+          group.appendChild(content);
         }
         if (group.childNodes.length) root.appendChild(group);
       }
@@ -316,8 +355,18 @@
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
-    stage.style.cursor = tool === "select" ? "default" : tool === "pick" ? "copy" : "crosshair";
+    updateToolCursor();
     render();
+  }
+  function updateToolCursor() {
+    if (state.tool === "draw" || state.tool === "erase") {
+      const diameter = Number($("#brush-size").value) * 96 / 25.4;
+      const side = Math.ceil(diameter + 4), center = side / 2, radius = diameter / 2;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${side}" height="${side}" viewBox="0 0 ${side} ${side}"><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="white" stroke-width="3"/><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="#172033" stroke-width="1"/></svg>`;
+      stage.style.cursor = `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${center} ${center}, crosshair`;
+    } else {
+      stage.style.cursor = state.tool === "select" ? "default" : state.tool === "pick" ? "copy" : "crosshair";
+    }
   }
   function selectedObject() { return state.objects.find((obj) => obj.id === state.selectedId) || null; }
   function drawSelection(obj) {
@@ -628,41 +677,38 @@
     render();
     message(`Picked ${state.color} from the image region.`, "ok");
   }
-  function collectEraserTarget(target) {
-    const group = target.closest("[data-object-id]");
-    if (!group) return;
-    const obj = state.objects.find((item) => item.id === group.dataset.objectId);
-    if (obj?.type === "draw") {
-      state.erasing.objects.add(obj.id);
-      return;
-    }
-    if (obj?.type !== "image") return;
-    const regionIndex = target.closest("[data-region-index]")?.dataset.regionIndex;
-    if (regionIndex === undefined) return;
-    const region = obj.regions[Number(regionIndex)];
-    if (region && Number(region.brushWidth) > 0) state.erasing.regions.add(region);
+  function objectLocalPoint(obj, point) {
+    const radians = (obj.rotation || 0) * Math.PI / 180;
+    const dx = point.x - obj.x, dy = point.y - obj.y;
+    const x = (dx * Math.cos(radians) + dy * Math.sin(radians)) / obj.width * obj.baseW + obj.baseW / 2;
+    const y = (-dx * Math.sin(radians) + dy * Math.cos(radians)) / obj.height * obj.baseH + obj.baseH / 2;
+    return obj.type === "image"
+      ? { x: x + Number(obj.cropX || 0), y: y + Number(obj.cropY || 0) }
+      : { x, y };
+  }
+  function addErasingPoint(event) {
+    const erasing = state.erasing;
+    if (!erasing) return;
+    const obj = state.objects.find((item) => item.id === erasing.id);
+    if (!obj) return;
+    const worldPoint = svgPoint(event);
+    if (Math.hypot(worldPoint.x - erasing.lastWorld.x, worldPoint.y - erasing.lastWorld.y) < .004) return;
+    erasing.points.push(objectLocalPoint(obj, worldPoint));
+    erasing.lastWorld = worldPoint;
   }
   function finishErasing() {
     const erasing = state.erasing;
     state.erasing = null;
-    const removed = erasing.objects.size + erasing.regions.size;
-    if (!removed) {
-      message("Eraser removes brush strokes only; drag across a brush stroke.", "info");
+    const obj = state.objects.find((item) => item.id === erasing.id);
+    if (!obj || !erasing.points.length) {
+      message("No selected layer was available to erase.", "info");
       return;
     }
     snapshot();
-    state.objects = state.objects.filter((obj) => !erasing.objects.has(obj.id));
-    for (const obj of state.objects) {
-      if (obj.type !== "image") continue;
-      obj.regions = obj.regions.filter((region) => !erasing.regions.has(region));
-      if (obj.regions.length) refreshImageCrop(obj);
-    }
-    if (erasing.objects.has(state.selectedId) || !state.objects.some((obj) => obj.id === state.selectedId)) {
-      state.selectedId = null;
-    }
-    state.selectedRegion = null;
+    obj.erasures = obj.erasures || [];
+    obj.erasures.push({ d: strokePath(erasing.points), width: erasing.width });
     changed();
-    message(`Erased ${removed} brush stroke${removed === 1 ? "" : "s"}.`, "ok");
+    message(`Erased part of the selected ${obj.type === "image" ? "image" : "layer"}.`, "ok");
   }
   function startDrag(event, obj, handle) {
     snapshot();
@@ -693,8 +739,16 @@
     if (event.button === 1 || state.spaceDown) { startPan(event); return; }
     const p = svgPoint(event);
     if (state.tool === "erase") {
-      state.erasing = { objects: new Set(), regions: new Set() };
-      collectEraserTarget(target);
+      const obj = selectedObject();
+      if (!obj) {
+        message("Select a layer before using the eraser.", "info");
+        return;
+      }
+      const brushMm = Number($("#brush-size").value);
+      const width = brushMm / 25.4 * obj.baseW / obj.width;
+      state.erasing = {
+        id: obj.id, points: [objectLocalPoint(obj, p)], lastWorld: p, width
+      };
       stage.setPointerCapture(event.pointerId);
       return;
     }
@@ -708,7 +762,7 @@
           state.selectedId = targetObject.id;
           state.selectedRegion = null;
           render();
-        } else if (targetGroup) imageId = null;
+        } else if (selectedObject()?.type === "image") imageId = state.selectedId;
       }
       state.drawing = { start: p, points: [p], type: state.tool, imageId };
       stage.setPointerCapture(event.pointerId);
@@ -751,9 +805,7 @@
     const p = svgPoint(event);
     $("#cursor-coords").textContent = `${p.x.toFixed(2)} × ${p.y.toFixed(2)} in`;
     if (state.erasing) {
-      const target = document.elementsFromPoint(event.clientX, event.clientY)
-        .find((element) => element.closest?.("[data-object-id]"));
-      if (target) collectEraserTarget(target);
+      addErasingPoint(event);
       return;
     }
     if (state.drawing) {
@@ -1193,7 +1245,9 @@
     const gRoot = node("g");
     for (const obj of state.objects) {
       const group = node("g", { transform: transformFor(obj) });
-      const colorPath = (d, fill, parent = group, brushWidth = 0) => {
+      const mask = appendObjectMask(group, obj, "stitch");
+      const content = node("g", { mask });
+      const colorPath = (d, fill, parent = content, brushWidth = 0) => {
         if (fill !== color) return;
         parent.appendChild(node("path", {
           d, fill: brushWidth ? "none" : fill,
@@ -1203,20 +1257,27 @@
         }));
       };
       if (obj.type === "image") {
-        const content = node("g", { transform: `translate(${-Number(obj.cropX || 0)} ${-Number(obj.cropY || 0)})` });
+        const imageContent = node("g", {
+          transform: `translate(${-Number(obj.cropX || 0)} ${-Number(obj.cropY || 0)})`,
+          mask
+        });
         for (const region of obj.regions) {
-          if (region.fill === color) colorPath(region.d, region.fill, content, Number(region.brushWidth) || 0);
+          if (region.fill === color) colorPath(region.d, region.fill, imageContent, Number(region.brushWidth) || 0);
         }
-        group.appendChild(content);
+        group.appendChild(imageContent);
       } else if (obj.type === "text") {
         if (obj.fill === color) {
           const text = node("text", {
             x: obj.baseW / 2, y: obj.baseH * .73, "text-anchor": "middle", "font-family": obj.font || "Arial",
             "font-size": obj.sizeIn, fill: color
           });
-          text.textContent = obj.text; group.appendChild(text);
+          text.textContent = obj.text; content.appendChild(text);
+          group.appendChild(content);
         }
-      } else colorPath(obj.d, obj.fill, group, obj.type === "draw" ? Number(obj.brushWidth) || 0 : 0);
+      } else {
+        colorPath(obj.d, obj.fill, content, obj.type === "draw" ? Number(obj.brushWidth) || 0 : 0);
+        group.appendChild(content);
+      }
       if (group.childNodes.length) gRoot.appendChild(group);
     }
     root.appendChild(gRoot);
@@ -1506,6 +1567,7 @@ json.dumps({
   $("#brush-size").addEventListener("input", (event) => {
     const size = Number(event.target.value);
     $("#brush-size-label").textContent = `${size.toFixed(1)} mm`;
+    updateToolCursor();
     if (state.drawing?.type === "draw") drawShapeGhost();
   });
   $("#trace-colors").addEventListener("change", () => {
