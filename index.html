@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f3f5f9">
-  <title>SHIFTY's Studio — Vector Embroidery Editor</title>
+  <title>Stitch Studio — Vector Embroidery Editor</title>
   <style>
     :root{font-family:Inter,"Segoe UI",Arial,sans-serif;color:#172033;background:#f3f5f9;font-synthesis:none}
     *{box-sizing:border-box}body{margin:0;min-width:320px}button,input,select{font:inherit}button{cursor:pointer}
@@ -44,7 +44,7 @@
 </head>
 <body>
   <header class="top">
-    <div class="brand"><span>✳</span> SHIFTY's Studio <span style="font-size:11px;font-weight:500;color:#768197">Embroidery File Creator</span></div>
+    <div class="brand"><span>✳</span> Stitch Studio <span style="font-size:11px;font-weight:500;color:#768197">Vector editor</span></div>
     <div class="topright"><span>Session only · use Save project to keep your work</span><button class="secondary" id="clear-canvas" title="Remove all artwork from this session">Clear canvas</button><button class="secondary" id="project-save">Save project</button><label class="secondary" for="project-file" style="display:grid;place-items:center;height:34px;cursor:pointer">Open project</label><input id="project-file" class="file" type="file" accept=".json,application/json"></div>
   </header>
   <main class="shell">
@@ -55,25 +55,27 @@
         <div class="row"><label for="obj-w">Size (in)</label><input id="obj-w" type="number" min=".05" max="12" step=".05" aria-label="Object width"><input id="obj-h" type="number" min=".05" max="12" step=".05" aria-label="Object height"></div>
         <div class="row"><label for="obj-rotation">Rotation</label><input id="obj-rotation" type="number" min="-180" max="180" step="1" value="0" aria-label="Selected object rotation in degrees"><span class="small">°</span></div>
         <div class="row"><label for="obj-fill">Fill</label><input id="obj-fill" type="color" value="#315ce8"><label><input id="keep-ratio" type="checkbox" checked> proportions</label></div>
-        <div class="row"><label for="text-entry">Text</label><input id="text-entry" type="text" maxlength="40" placeholder="Type text to add or edit"><select id="font" aria-label="Text font"><option>Arial</option><option>Georgia</option><option>Verdana</option><option>Trebuchet MS</option><option>Courier New</option></select></div>
+        <div class="row"><label for="text-entry">Text</label><input id="text-entry" type="text" maxlength="40" placeholder="Type text to add or edit"><select id="font" aria-label="Text font">
+          <option>Arial</option><option>Arial Black</option><option>Arial Narrow</option><option>Bahnschrift</option><option>Calibri</option><option>Cambria</option><option>Candara</option><option>Century Gothic</option><option>Comic Sans MS</option><option>Consolas</option><option>Constantia</option><option>Corbel</option><option>Courier New</option><option>Franklin Gothic Medium</option><option>Georgia</option><option>Impact</option><option>Lucida Console</option><option>Lucida Sans Unicode</option><option>Palatino Linotype</option><option>Segoe Print</option><option>Segoe Script</option><option>Segoe UI</option><option>Tahoma</option><option>Times New Roman</option><option>Trebuchet MS</option><option>Verdana</option>
+        </select></div>
         <div class="row"><label for="text-size">Text size (in)</label><input id="text-size" type="number" min=".05" max="2" step=".05" value=".4"></div>
         <div class="row"><button class="secondary" id="add-text" title="Add text to the canvas">Add text to canvas</button><button class="secondary" id="bring-front">Bring forward</button></div>
-        <div class="small">Drag artwork to move, corner squares to resize, or the circular handle to rotate. Draw / touch up paints a rounded stroke into the traced-image layer under the pointer or the selected image.</div>
+        <div class="small">Drag artwork to move, corner squares to resize, or the circular handle to rotate. Paint adds a fillable, active-color region to the traced-image layer under the pointer or selected image. Eraser removes artwork from the selected layer using the brush size.</div>
       </section>
     </aside>
     <section class="left">
       <div class="toolbar" role="toolbar" aria-label="Vector tools">
         <button class="tool active" data-tool="select" title="Select, move, resize">↖ Select</button>
         <button class="tool" data-tool="fill" title="Click a vector region to recolor">▧ Fill</button>
-        <button class="tool" data-tool="pick" title="Pick the thread color from a traced region">◉ Pick</button>
+        <button class="tool" data-tool="pick" title="Pick the thread color from a traced region">◉ Color Picker</button>
         <button class="tool" data-tool="remove" title="Click a traced region to exclude it from stitching">× Color Remover</button>
-        <button class="tool" data-tool="draw" title="Paint into an image under the pointer or selected on empty canvas; otherwise create a brush stroke">✎ Paint brush</button>
-        <button class="tool" data-tool="erase" title="Erase brush strokes from traced images or standalone brush objects">⌫ Eraser</button>
+        <button class="tool" data-tool="draw" title="Paint into the traced image under the pointer or selected; otherwise add a brush-stroke layer">✎ Paint brush</button>
+        <button class="tool" data-tool="erase" title="Erase artwork from the selected layer using the brush size">⌫ Eraser</button>
         <button class="tool" data-tool="rect" title="Draw a filled rectangle">□ Rect</button>
         <button class="tool" data-tool="ellipse" title="Draw a filled ellipse">◯ Ellipse</button>
         <span class="sep"></span>
         <label>Color <input id="active-color" type="color" value="#315ce8" aria-label="Active thread color"></label>
-        <label>Brush (mm) <input id="brush-size" type="range" min="1" max="10" step=".5" value="4" aria-label="Paint brush width in millimeters"></label>
+        <label>Brush (mm) <input id="brush-size" type="range" min=".5" max="10" step=".5" value="4" aria-label="Paint and eraser brush width in millimeters"></label>
         <span id="brush-size-label" class="small">4.0 mm</span>
         <label>Canvas zoom <input id="zoom" type="range" min="25" max="400" step="1" value="100" aria-label="Canvas zoom"></label>
         <span id="zoom-label" class="small">100%</span>
@@ -103,14 +105,14 @@
         <div id="hoop-summary" class="small" aria-live="polite">Active hoop: 7 × 5 in (landscape)</div>
         <div class="row" id="custom-row" hidden><label>Width × height (in)</label><input id="custom-width" type="number" min="1" max="12" step=".1" value="7" aria-label="Custom canvas width in inches" title="Custom canvas width in inches"><span aria-hidden="true">×</span><input id="custom-height" type="number" min="1" max="12" step=".1" value="5" aria-label="Custom canvas height in inches" title="Custom canvas height in inches"></div>
         <div class="small">Custom canvas dimensions: 1–12 in each. PES export uses the selected canvas size; confirm your embroidery machine supports the design area. The Brother PE900 supports up to 5 × 7 in.</div>
-        <div class="row"><label for="trace-colors">Trace colors</label><select id="trace-colors"><option>2</option><option>4</option><option selected>8</option><option>12</option><option>16</option><option>24</option><option>32</option><option>40</option><option>48</option><option>64</option></select></div>
+        <div class="row"><label for="trace-colors">Trace colors</label><select id="trace-colors"><option>2</option><option>4</option><option>8</option><option>12</option><option selected>16</option><option>24</option><option>32</option><option>40</option><option>48</option><option>64</option></select></div>
         <div id="trace-summary" class="small" aria-live="polite">Current design: 0 thread colors · 0 filled regions</div>
         <button class="secondary wide" id="retrace-image" disabled>Retrace selected image</button>
         <div class="small">Select an image layer, choose a color count, then retrace it.</div>
         <div class="row"><label for="trace-detail">Trace cleanup</label><input id="trace-detail" type="range" min="10" max="100" step="5" value="40"><span id="trace-detail-value" class="small">40%</span></div>
         <div class="small">Lower cleanup settings discard more small isolated fragments; higher settings preserve fine detail. Outlines are traced without blurring. Start at 40% to reduce slivers, then retrace to compare.</div>
         <label class="small"><input id="ignore-white" type="checkbox"> Exclude all near-white regions</label>
-        <div class="small">White is preserved unless you choose to exclude it. Use Color Remover to remove only the region you click. Too many trace colors can turn texture into slivers; use the lowest count that preserves the artwork’s colors. The summary counts colors still present after removals; Pick samples a region and checks it in the thread palette.</div>
+        <div class="small">White is preserved unless you choose to exclude it. Use Color Remover to remove only the region you click. Too many trace colors can turn texture into slivers; use the lowest count that preserves the artwork’s colors. The summary counts colors still present after removals; Color Picker samples a region and checks it in the thread palette.</div>
         <div class="layer-head"><h3>Layers</h3><div class="layer-actions"><button class="secondary" id="delete-layer" title="Delete selected layer" disabled>Delete</button></div></div>
         <div class="small">Use the arrows to move layers forward or backward; top rows appear in front.</div>
         <div class="layers" id="layers" aria-label="Artwork layers"></div>
