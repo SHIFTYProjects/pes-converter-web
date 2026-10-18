@@ -1137,7 +1137,7 @@
           const ar = 255 - palette[k].r, ag = 255 - palette[k].g, ab = 255 - palette[k].b, denom = ar * ar + ag * ag + ab * ab || 1;
           const w = ((255 - palette[c].r) * ar + (255 - palette[c].g) * ag + (255 - palette[c].b) * ab) / denom;
           const err = Math.hypot(255 - w * ar - palette[c].r, 255 - w * ag - palette[c].g, 255 - w * ab - palette[c].b);
-          if (w > .1 && w < .95 && err < 16 && (!best || err < best.err)) best = { k, w, err };
+          if (w > .1 && w < .6 && err < 16 && (!best || err < best.err)) best = { k, w, err };
         }
         if (best) tint.set(c, best); else roots.push(c);
       }
