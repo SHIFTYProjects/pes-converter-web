@@ -2494,7 +2494,26 @@ json.dumps({
       const out = await pyodide.runPythonAsync(`
 import io, json
 from pyembroidery import EmbPattern, STITCH, JUMP, TRIM, COLOR_CHANGE, END
-pattern = EmbPattern.read_pes(io.BytesIO(bytes(pes_bytes.to_py())))
+raw = bytes(pes_bytes.to_py())
+def load_pattern(raw):
+    try:
+        return EmbPattern.read_pes(io.BytesIO(raw))
+    except Exception as first_error:
+        # Header/PEC offset is unreliable in some files: locate PEC blocks ("LA:") directly.
+        from pyembroidery.PecReader import read_pec
+        pos = raw.find(b"LA:")
+        while pos != -1:
+            try:
+                p = EmbPattern()
+                read_pec(io.BytesIO(raw[pos:]), p, [])
+                p.interpolate_duplicate_color_as_stop()
+                if len(p.stitches) > 1:
+                    return p
+            except Exception:
+                pass
+            pos = raw.find(b"LA:", pos + 1)
+        raise first_error
+pattern = load_pattern(raw)
 colors = []
 for thread in pattern.threadlist:
     desc = getattr(thread, "description", None) or getattr(thread, "catalog_number", None) or ""
