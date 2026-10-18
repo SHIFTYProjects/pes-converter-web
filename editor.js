@@ -1103,7 +1103,7 @@
     const kept = [];
     centers.map((c, i) => i).sort((a, b) => share[b] - share[a]).forEach((i) => {
       const p = centers[i];
-      let blend = share[i] / samples.length < .06 && kept.length >= 2;
+      let blend = share[i] / samples.length < .015 && kept.length >= 2;
       if (blend) {
         blend = false;
         for (let a = 0; a < kept.length && !blend; a++) for (let b = a + 1; b < kept.length && !blend; b++) {
@@ -1129,10 +1129,22 @@
     // are "tints" of a real thread colour; they are folded back into it (or into the background) by
     // how much of the real colour they contain, instead of becoming separate pale threads.
     const tint = new Map(), roots = [];
+    // Colors covering a sizeable area are real fills (e.g. mid-gray), never edge blends.
+    const usage = new Float64Array(palette.length), usageStep = Math.max(1, Math.floor(index.length / 40000));
+    for (let p = 0, n = 0; p < index.length; p += usageStep, n++) {
+      let best = 0, bestD = Infinity;
+      for (let c = 0; c < palette.length; c++) {
+        const d = (data[p * 4] - palette[c].r) ** 2 + (data[p * 4 + 1] - palette[c].g) ** 2 + (data[p * 4 + 2] - palette[c].b) ** 2;
+        if (d < bestD) { bestD = d; best = c; }
+      }
+      usage[best]++;
+    }
+    const usageTotal = usage.reduce((a, b) => a + b, 0) || 1;
     if (white >= 0) {
       const order = palette.map((c, i) => i).filter((i) => !whiteEntry[i]).sort((x, y) => fromWhite(palette[y]) - fromWhite(palette[x]));
       for (const c of order) {
         let best = null;
+        if (usage[c] / usageTotal >= .015) { roots.push(c); continue; }
         for (const k of roots) {
           const ar = 255 - palette[k].r, ag = 255 - palette[k].g, ab = 255 - palette[k].b, denom = ar * ar + ag * ag + ab * ab || 1;
           const w = ((255 - palette[c].r) * ar + (255 - palette[c].g) * ag + (255 - palette[c].b) * ab) / denom;
@@ -1153,6 +1165,36 @@
         if (d < bestD) { bestD = d; best = c; }
       }
       index[p] = resolve(best);
+    }
+    // A colour lying between two other palette colours (e.g. gray between black and white) is an
+    // anti-aliasing fringe when both of those colours are within a few pixels; otherwise it is a real fill.
+    const pairs = palette.map(() => []);
+    for (let c = 0; c < palette.length; c++) {
+      for (let a = 0; a < palette.length; a++) for (let b = a + 1; b < palette.length; b++) {
+        if (a === c || b === c) continue;
+        const A = palette[a], B = palette[b], d = [B.r - A.r, B.g - A.g, B.b - A.b];
+        const len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+        if (len2 < 900) continue;
+        const t = ((palette[c].r - A.r) * d[0] + (palette[c].g - A.g) * d[1] + (palette[c].b - A.b) * d[2]) / len2;
+        if (t < .1 || t > .9) continue;
+        if (Math.hypot(palette[c].r - A.r - t * d[0], palette[c].g - A.g - t * d[1], palette[c].b - A.b - t * d[2]) < 22) pairs[c].push([a, b, t]);
+      }
+    }
+    if (pairs.some((list) => list.length)) {
+      const original = index.slice(), R = 3;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const c = original[y * width + x], list = pairs[c];
+          if (!list.length) continue;
+          const present = new Set();
+          for (let yy = Math.max(0, y - R); yy <= Math.min(height - 1, y + R); yy++) {
+            for (let xx = Math.max(0, x - R); xx <= Math.min(width - 1, x + R); xx++) present.add(original[yy * width + xx]);
+          }
+          for (const [a, b, t] of list) {
+            if (present.has(a) && present.has(b)) { index[y * width + x] = t < .5 ? a : b; break; }
+          }
+        }
+      }
     }
     // Majority filter removes one-pixel slivers left by anti-aliased edges.
     const smoothed = index.slice();
@@ -1231,7 +1273,7 @@
         if (maximum - minimum > 28) chromatic++;
       }
     }
-    const monochrome = inspected > 0 && chromatic < Math.max(24, inspected * .0005);
+    const monochrome = traceColors <= 2 && inspected > 0 && chromatic < Math.max(24, inspected * .0005);
     let effectiveColors = traceColors;
     if (monochrome) {
       const histogram = new Uint32Array(256);
