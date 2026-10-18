@@ -124,7 +124,7 @@
     updateHoopSummary();
     const zoomPercent = Math.round(state.zoom * 100);
     $("#zoom-label").textContent = `${zoomPercent}%`;
-    $("#zoom").value = String(Math.max(25, Math.min(400, zoomPercent)));
+    $("#zoom").value = String(Math.max(25, Math.min(500, zoomPercent)));
     fitStageToHoop();
     updateToolCursor();
   }
@@ -145,7 +145,7 @@
     $("#hoop-summary").textContent = `Active hoop: ${state.hoopW} × ${state.hoopH} in (${orientation})`;
   }
   function zoomCanvas(zoom, anchor) {
-    const nextZoom = Math.max(.25, Math.min(4, zoom));
+    const nextZoom = Math.max(.25, Math.min(5, zoom));
     const oldWidth = state.hoopW / state.zoom, oldHeight = state.hoopH / state.zoom;
     const nextWidth = state.hoopW / nextZoom, nextHeight = state.hoopH / nextZoom;
     const centerX = state.viewX + oldWidth / 2, centerY = state.viewY + oldHeight / 2;
@@ -225,12 +225,19 @@
     path.style.cursor = state.tool === "fill" || state.tool === "remove" ? "crosshair" : "inherit";
     return path;
   }
-  function appendObjectMask(parent, obj, prefix, gen = 0, color = null) {
-    // Erasures remember which colors were hidden when they were made and never touch those colors.
-    const erasures = (Array.isArray(obj.erasures) ? obj.erasures.slice(gen) : [])
-      .filter((erasure) => !(color && erasure.skip && erasure.skip.includes(color)));
+  function appendObjectMask(parent, obj, prefix, gen = 0, region = null) {
+    // Regions hidden when an erasure was made are tracked per region, so recoloring keeps them protected.
+    const erasures = (Array.isArray(obj.erasures) ? obj.erasures : [])
+      .map((erasure, index) => ({ erasure, index }))
+      .filter(({ erasure, index }) => {
+        if (index < gen || !region) return index >= gen;
+        if (Array.isArray(region.skipErasures)) return !region.skipErasures.includes(index);
+        return !(erasure.skip && erasure.skip.includes(region.fill));
+      }).map(({ erasure }) => erasure);
     if (!erasures.length) return null;
-    const id = `${prefix}-${obj.id}-erasures-${gen}-${color ? color.replace(/\W/g, "") : "all"}`;
+    const total = Array.isArray(obj.erasures) ? obj.erasures.length : 0;
+    const key = region && erasures.length !== total - gen ? `${erasures.length}-${(region.skipErasures || []).join("_") || String(region.fill).replace(/\W/g, "")}` : "all";
+    const id = `${prefix}-${obj.id}-erasures-${gen}-${key}`;
     if (parent.querySelector(`[id="${id}"]`)) return `url(#${id})`;
     const width = obj.type === "image" ? Number(obj.naturalW) || obj.baseW : obj.baseW;
     const height = obj.type === "image" ? Number(obj.naturalH) || obj.baseH : obj.baseH;
@@ -252,7 +259,7 @@
   }
   // Erasures only affect regions that existed when the erasure was made.
   function regionHost(content, maskParent, obj, prefix, region) {
-    const mask = appendObjectMask(maskParent, obj, prefix,     Number(region.gen) || 0, region.fill);
+    const mask = appendObjectMask(maskParent, obj, prefix,     Number(region.gen) || 0, region);
     if (!mask) return content;
     const host = node("g", { mask });
     content.appendChild(host);
@@ -739,6 +746,13 @@
     }
     snapshot();
     obj.erasures = obj.erasures || [];
+    if (Array.isArray(obj.regions)) {
+      const index = obj.erasures.length;
+      obj.regions.forEach((region) => {
+        region.skipErasures = region.skipErasures || obj.erasures.map((e, i) => (e.skip && e.skip.includes(region.fill) ? i : -1)).filter((i) => i >= 0);
+        if (state.hiddenColors.has ? state.hiddenColors.has(region.fill) : state.hiddenColors.includes(region.fill)) region.skipErasures.push(index);
+      });
+    }
     obj.erasures.push({ d: strokePath(erasing.points), width: erasing.width, skip: [...state.hiddenColors] });
     changed();
     message(`Erased part of the selected ${obj.type === "image" ? "image" : "layer"}.`, "ok");
@@ -1977,7 +1991,7 @@
     const colors = allColors();
     if (!colors.length) throw new Error("No filled regions are available to stitch.");
     const spacing = Number($("#spacing").value), angle = Number($("#angle").value);
-    if (!Number.isFinite(spacing) || spacing < .2 || spacing > 1.2) throw new Error("Row spacing must be between 0.2 and 1.2 mm.");
+    if (!Number.isFinite(spacing) || spacing < .1 || spacing > 1.2) throw new Error("Row spacing must be between 0.1 and 1.2 mm.");
     if (!Number.isFinite(angle) || angle < 0 || angle > 179) throw new Error("Fill angle must be between 0 and 179 degrees.");
     if (state.busy) return;
     state.busy = true; $("#export-pes").disabled = true;

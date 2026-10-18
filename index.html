@@ -95,7 +95,7 @@
         <label>Color <input id="active-color" type="color" value="#315ce8" aria-label="Active thread color"></label>
         <label>Brush (mm) <input id="brush-size" type="range" min=".5" max="10" step=".5" value="4" aria-label="Paint and eraser brush width in millimeters"></label>
         <span id="brush-size-label" class="small">4.0 mm</span>
-        <label>Canvas zoom <input id="zoom" type="range" min="25" max="400" step="1" value="100" aria-label="Canvas zoom"></label>
+        <label>Canvas zoom <input id="zoom" type="range" min="25" max="500" step="1" value="100" aria-label="Canvas zoom"></label>
         <span id="zoom-label" class="small">100%</span>
         <button class="tool" id="fit-view" title="Show the full hoop">Fit hoop</button>
         <button class="tool" id="undo" title="Undo (Ctrl+Z)">↶</button>
@@ -152,8 +152,8 @@
       </section>
       <section class="panel">
         <h2>Stitch settings</h2>
-        <div class="row"><label for="spacing">Row spacing</label><input id="spacing" type="number" min=".2" max="1.2" step=".05" value=".2"><span class="small">mm</span></div>
-        <div class="row"><label for="angle">Fill angle</label><input id="angle" type="number" min="0" max="179" step="5" value="0"><span class="small">°</span></div>
+        <div class="row"><label for="spacing">Row spacing</label><input id="spacing" type="number" min=".1" max="1.2" step=".01" value=".18"><span class="small">mm</span></div>
+        <div class="row"><label for="angle">Fill angle</label><input id="angle" type="number" min="0" max="179" step="5" value="15"><span class="small">°</span></div>
         <div class="row"><label for="output-orientation">Output orientation</label><select id="output-orientation"><option value="standard" selected>Standard</option><option value="mirror-x">Mirror horizontally</option><option value="mirror-y">Flip vertically</option><option value="rotate-180">Rotate 180°</option></select></div>
         <div class="small">Use if your machine or viewer shows the design mirrored.</div>
         <div class="row"><label for="underlay">Underlay</label><select id="underlay"><option value="none">Off</option><option value="grid">Light crosshatch</option></select></div>
