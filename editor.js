@@ -447,7 +447,7 @@
   function updateProperties() {
     const obj = selectedObject();
     const disabled = !obj;
-    ["#obj-x", "#obj-y", "#obj-w", "#obj-h", "#obj-rotation", "#obj-fill", "#bring-front", "#delete-selection"].forEach((s) => { $(s).disabled = disabled; });
+    ["#obj-x", "#obj-y", "#obj-w", "#obj-h", "#obj-rotation", "#obj-fill", "#bring-front", "#send-back", "#delete-selection"].forEach((s) => { $(s).disabled = disabled; });
     $("#text-entry").value = obj && obj.type === "text" ? obj.text : "";
     $("#retrace-image").disabled = !obj || obj.type !== "image" || !obj.sourceDataUrl;
     if (obj) {
@@ -1507,16 +1507,17 @@
   function colorSceneSvg(color, angle, ppu) {
     const w = Math.ceil(state.hoopW * 25.4 * ppu), h = Math.ceil(state.hoopH * 25.4 * ppu);
     const root = node("svg", { xmlns: NS, width: w, height: h, viewBox: `0 0 ${state.hoopW} ${state.hoopH}` });
-    const gRoot = node("g");
-    for (const obj of state.objects) {
+    const gRoot = node("g"), defs = node("defs");
+    // Draws one object's shapes whose fill satisfies `match`, painted in `paint`.
+    const buildGroup = (obj, match, paint, prefix) => {
       const group = node("g", { transform: transformFor(obj) });
-      const mask = obj.type === "image" ? null : appendObjectMask(group, obj, "stitch");
+      const mask = obj.type === "image" ? null : appendObjectMask(group, obj, prefix);
       const content = node("g", { mask });
       const colorPath = (d, fill, parent = content, brushWidth = 0, filled = false) => {
-        if (fill !== color) return;
+        if (!match(fill)) return;
         parent.appendChild(node("path", {
-          d, fill: brushWidth && !filled ? "none" : fill,
-          stroke: brushWidth ? fill : "none",
+          d, fill: brushWidth && !filled ? "none" : paint,
+          stroke: brushWidth ? paint : "none",
           "stroke-width": brushWidth,
           "stroke-linecap": "round", "stroke-linejoin": "round"
         }));
@@ -1526,14 +1527,14 @@
           transform: `translate(${-Number(obj.cropX || 0)} ${-Number(obj.cropY || 0)})`
         });
         for (const region of obj.regions) {
-          if (region.fill === color) colorPath(region.d, region.fill, regionHost(imageContent, group, obj, "stitch", region), Number(region.brushWidth) || 0, region.filled);
+          if (match(region.fill)) colorPath(region.d, region.fill, regionHost(imageContent, group, obj, prefix, region), Number(region.brushWidth) || 0, region.filled);
         }
         group.appendChild(imageContent);
       } else if (obj.type === "text") {
-        if (obj.fill === color) {
+        if (match(obj.fill)) {
           const text = node("text", {
             x: obj.baseW / 2, y: obj.baseH * .73, "text-anchor": "middle", "font-family": obj.font || "Arial",
-            "font-size": obj.sizeIn, fill: color
+            "font-size": obj.sizeIn, fill: paint
           });
           text.textContent = obj.text; content.appendChild(text);
           group.appendChild(content);
@@ -1542,9 +1543,27 @@
         colorPath(obj.d, obj.fill, content, obj.type === "draw" ? Number(obj.brushWidth) || 0 : 0, obj.filled);
         group.appendChild(content);
       }
-      if (group.childNodes.length) gRoot.appendChild(group);
-    }
-    root.appendChild(gRoot);
+      return group;
+    };
+    state.objects.forEach((obj, index) => {
+      const group = buildGroup(obj, (fill) => fill === color, color, "stitch");
+      if (!group.childNodes.length) return;
+      // Anything in a higher layer covers this object, so it is not stitched underneath it.
+      const above = state.objects.slice(index + 1)
+        .map((other) => buildGroup(other, (fill) => Boolean(fill) && fill !== "none", "#000", "cover"))
+        .filter((g) => g.childNodes.length);
+      if (!above.length) { gRoot.appendChild(group); return; }
+      const mask = node("mask", {
+        id: `cover-${index}`, x: -50, y: -50, width: state.hoopW + 100, height: state.hoopH + 100,
+        maskUnits: "userSpaceOnUse", maskContentUnits: "userSpaceOnUse", "mask-type": "luminance"
+      });
+      mask.appendChild(node("rect", { x: -50, y: -50, width: state.hoopW + 100, height: state.hoopH + 100, fill: "white" }));
+      above.forEach((g) => mask.appendChild(g));
+      defs.appendChild(mask);
+      const wrapper = node("g", { mask: `url(#cover-${index})` });
+      wrapper.appendChild(group); gRoot.appendChild(wrapper);
+    });
+    root.appendChild(defs); root.appendChild(gRoot);
     return { svg: new XMLSerializer().serializeToString(root), width: w, height: h };
   }
   function loadSvgImage(text) {
@@ -2258,7 +2277,11 @@ json.dumps({
   $("#clear-canvas").addEventListener("click", clearCanvas);
   $("#bring-front").addEventListener("click", () => {
     const obj = selectedObject(); if (!obj) return;
-    snapshot(); state.objects = state.objects.filter((item) => item.id !== obj.id); state.objects.push(obj); changed();
+    snapshot(); state.objects = [...state.objects.filter((item) => item.id !== obj.id), obj]; changed();
+  });
+  $("#send-back").addEventListener("click", () => {
+    const obj = selectedObject(); if (!obj) return;
+    snapshot(); state.objects = [obj, ...state.objects.filter((item) => item.id !== obj.id)]; changed();
   });
   for (const [selector, key, min, max] of [["#obj-x", "x", -12, 24], ["#obj-y", "y", -12, 24], ["#obj-w", "width", .05, 12], ["#obj-h", "height", .05, 12]]) {
     $(selector).addEventListener("change", () => setNumber(selector, key, min, max));
