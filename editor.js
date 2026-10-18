@@ -1092,18 +1092,67 @@
       }
       sums.forEach((acc, c) => { if (acc[3]) centers[c] = [acc[0] / acc[3], acc[1] / acc[3], acc[2] / acc[3]]; });
     }
-    return centers.map((c) => ({ r: Math.round(c[0]), g: Math.round(c[1]), b: Math.round(c[2]), a: 255 }));
+    // Anti-aliased boundaries between two flat colors produce minor clusters lying on the line between
+    // them. Dropping those leaves only the real colors, so edges snap cleanly instead of scattering.
+    const share = centers.map(() => 0);
+    for (const s of samples) {
+      let best = 0, bestD = Infinity;
+      for (let c = 0; c < centers.length; c++) { const d = dist(s, centers[c]); if (d < bestD) { bestD = d; best = c; } }
+      share[best]++;
+    }
+    const kept = [];
+    centers.map((c, i) => i).sort((a, b) => share[b] - share[a]).forEach((i) => {
+      const p = centers[i];
+      let blend = share[i] / samples.length < .06 && kept.length >= 2;
+      if (blend) {
+        blend = false;
+        for (let a = 0; a < kept.length && !blend; a++) for (let b = a + 1; b < kept.length && !blend; b++) {
+          const A = centers[kept[a]], B = centers[kept[b]], d = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
+          const len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+          if (len2 < 900) continue;
+          const t = ((p[0] - A[0]) * d[0] + (p[1] - A[1]) * d[1] + (p[2] - A[2]) * d[2]) / len2;
+          if (t < .1 || t > .9) continue;
+          if (Math.sqrt(dist(p, [A[0] + t * d[0], A[1] + t * d[1], A[2] + t * d[2]])) < 22) blend = true;
+        }
+      }
+      if (!blend) kept.push(i);
+    });
+    return kept.sort((a, b) => a - b).map((i) => centers[i]).map((c) => ({ r: Math.round(c[0]), g: Math.round(c[1]), b: Math.round(c[2]), a: 255 }));
   }
   function snapToPalette(imageData, palette) {
     const { width, height, data } = imageData;
     const index = new Uint8Array(width * height);
+    const whiteEntry = palette.map((c) => Math.min(c.r, c.g, c.b) >= 220 && Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b) <= 35);
+    const white = whiteEntry.indexOf(true);
+    const fromWhite = (c) => Math.hypot(255 - c.r, 255 - c.g, 255 - c.b);
+    // Anti-aliased edges of a coloured shape are blends of its colour and white. Such palette entries
+    // are "tints" of a real thread colour; they are folded back into it (or into the background) by
+    // how much of the real colour they contain, instead of becoming separate pale threads.
+    const tint = new Map(), roots = [];
+    if (white >= 0) {
+      const order = palette.map((c, i) => i).filter((i) => !whiteEntry[i]).sort((x, y) => fromWhite(palette[y]) - fromWhite(palette[x]));
+      for (const c of order) {
+        let best = null;
+        for (const k of roots) {
+          const ar = 255 - palette[k].r, ag = 255 - palette[k].g, ab = 255 - palette[k].b, denom = ar * ar + ag * ag + ab * ab || 1;
+          const w = ((255 - palette[c].r) * ar + (255 - palette[c].g) * ag + (255 - palette[c].b) * ab) / denom;
+          const err = Math.hypot(255 - w * ar - palette[c].r, 255 - w * ag - palette[c].g, 255 - w * ab - palette[c].b);
+          if (w > .1 && w < .95 && err < 16 && (!best || err < best.err)) best = { k, w, err };
+        }
+        if (best) tint.set(c, best); else roots.push(c);
+      }
+    }
+    const resolve = (c) => {
+      const t = tint.get(c);
+      return t ? (t.w >= .5 ? t.k : white) : c;
+    };
     for (let p = 0; p < index.length; p++) {
       let best = 0, bestD = Infinity;
       for (let c = 0; c < palette.length; c++) {
         const d = (data[p * 4] - palette[c].r) ** 2 + (data[p * 4 + 1] - palette[c].g) ** 2 + (data[p * 4 + 2] - palette[c].b) ** 2;
         if (d < bestD) { bestD = d; best = c; }
       }
-      index[p] = best;
+      index[p] = resolve(best);
     }
     // Majority filter removes one-pixel slivers left by anti-aliased edges.
     const smoothed = index.slice();
@@ -1117,12 +1166,43 @@
         if (counts[best] >= 5) smoothed[y * width + x] = best;
       }
     }
+    // Hairline strokes only a pixel or two wide never reach 50% coverage and would vanish as
+    // background. Restore pixels on the centre ridge of such a stroke: clearly more covered than the
+    // pixel on one side of them and at least as covered as the other. Edges of large shapes have solid
+    // colour behind them, so they are not ridges and keep their smooth outline.
+    if (white >= 0 && roots.length) {
+      const cover = new Float32Array(width * height), owner = new Int16Array(width * height).fill(-1);
+      for (let p = 0; p < cover.length; p++) {
+        if (smoothed[p] !== white) { cover[p] = 1; continue; }
+        const r = data[p * 4], g = data[p * 4 + 1], b = data[p * 4 + 2];
+        if (Math.min(r, g, b) >= 238) continue;
+        let bestErr = Infinity;
+        for (const c of roots) {
+          const ar = 255 - palette[c].r, ag = 255 - palette[c].g, ab = 255 - palette[c].b, denom = ar * ar + ag * ag + ab * ab || 1;
+          const w = Math.max(0, Math.min(1, ((255 - r) * ar + (255 - g) * ag + (255 - b) * ab) / denom));
+          const err = Math.hypot(255 - w * ar - r, 255 - w * ag - g, 255 - w * ab - b);
+          if (err < bestErr - 1e-6) { bestErr = err; cover[p] = w; owner[p] = c; }
+        }
+        if (bestErr > 30) { cover[p] = 0; owner[p] = -1; }
+      }
+      const rescued = [];
+      for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          const p = y * width + x;
+          if (owner[p] < 0 || cover[p] < .25 || cover[p] >= .5) continue;
+          const l = cover[p - 1], r2 = cover[p + 1], u = cover[p - width], d = cover[p + width], w = cover[p];
+          const horizontal = w >= Math.max(l, r2) && w > Math.min(l, r2) + .1;
+          const vertical = w >= Math.max(u, d) && w > Math.min(u, d) + .1;
+          if (horizontal || vertical) rescued.push(p);
+        }
+      }
+      for (const p of rescued) smoothed[p] = owner[p];
+    }
     for (let p = 0; p < smoothed.length; p++) {
       const color = palette[smoothed[p]];
       data[p * 4] = color.r; data[p * 4 + 1] = color.g; data[p * 4 + 2] = color.b; data[p * 4 + 3] = 255;
     }
-  }
-  function traceImageElement(image, colorCount, detail) {
+  }  function traceImageElement(image, colorCount, detail) {
     const scale = Math.min(1, 900 / Math.max(image.naturalWidth, image.naturalHeight));
     const width = Math.max(1, Math.round(image.naturalWidth * scale));
     const height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -1182,19 +1262,29 @@
       }
       effectiveColors = 2;
     }
-    let palette = null, traceData = imageData, traceScale = 1;
+    let palette = null, traceData = imageData, traceScale = 1, paletteSource = null;
     if (!monochrome) {
-      traceScale = Math.max(image.naturalWidth, image.naturalHeight) * scale <= 900 ? 2 : 1;
+      // Small sources are enlarged with smooth interpolation so snapped colour edges follow a smooth curve.
+      const longSide = Math.max(image.naturalWidth, image.naturalHeight) * scale;
+      traceScale = longSide <= 900 ? Math.max(2, Math.min(4, Math.round(1200 / longSide))) : 1;
       if (traceScale > 1) {
         const big = document.createElement("canvas");
         big.width = width * traceScale; big.height = height * traceScale;
         const bigContext = big.getContext("2d", { willReadFrequently: true });
-        bigContext.imageSmoothingQuality = "high";
+        bigContext.imageSmoothingEnabled = true; bigContext.imageSmoothingQuality = "high";
         bigContext.fillStyle = "#ffffff"; bigContext.fillRect(0, 0, big.width, big.height);
         bigContext.drawImage(canvas, 0, 0, big.width, big.height);
+        paletteSource = bigContext.getImageData(0, 0, big.width, big.height);
+        // Pixel-art style edges are rounded by blurring before the colours are snapped.
+        if (traceScale >= 3 && "filter" in bigContext) {
+          bigContext.filter = `blur(${(traceScale * .7).toFixed(1)}px)`;
+          bigContext.fillRect(0, 0, big.width, big.height);
+          bigContext.drawImage(canvas, 0, 0, big.width, big.height);
+          bigContext.filter = "none";
+        }
         traceData = bigContext.getImageData(0, 0, big.width, big.height);
       }
-      palette = buildImagePalette(traceData, effectiveColors);
+      palette = buildImagePalette(paletteSource || traceData, effectiveColors);
       snapToPalette(traceData, palette);
     }
     const svgText = ImageTracer.imagedataToSVG(traceData, {
@@ -1575,29 +1665,111 @@
     }
     return segments;
   }
-  // Greedy nearest-neighbour ordering so rows run as a continuous serpentine and each
-  // separate area is sewn in one pass instead of trimming and jumping after every row.
-  function orderSegments(segments) {
-    const rest = segments.slice(), ordered = [], window = 400;
-    let end = null;
-    while (rest.length) {
-      let best = 0, bestDist = Infinity, bestFlip = false;
-      const limit = end ? Math.min(rest.length, window) : 1;
-      for (let i = 0; i < limit; i++) {
-        const pts = rest[i].points;
-        const head = end ? Math.hypot(pts[0].x - end.x, pts[0].y - end.y) : 0;
-        const tail = end ? Math.hypot(pts.at(-1).x - end.x, pts.at(-1).y - end.y) : Infinity;
-        if (head < bestDist) { best = i; bestDist = head; bestFlip = false; }
-        if (tail < bestDist) { best = i; bestDist = tail; bestFlip = true; }
+  // Orders fill rows to minimise jumps and trims. Rows are first grouped into connected regions
+  // (rows lying next to each other), and each region is sewn completely, as one serpentine, before
+  // moving to the nearest next region. Within a region several start points are tried and the
+  // one with the fewest/shortest jumps wins.
+  function orderSegments(segments, spacingMm = .4) {
+    if (segments.length < 2) return segments.slice();
+    const mm = 25.4, n = segments.length;
+    const parent = Array.from({ length: n }, (_, i) => i);
+    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    const reach = spacingMm * 1.6, hash = new Map(), key = (x, y) => `${x}|${y}`;
+    segments.forEach((segment, index) => {
+      const pts = segment.points;
+      for (let i = 1; i < pts.length; i++) {
+        const ax = pts[i - 1].x * mm, ay = pts[i - 1].y * mm, bx = pts[i].x * mm, by = pts[i].y * mm;
+        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / spacingMm));
+        for (let k = 0; k <= steps; k++) {
+          const x = ax + (bx - ax) * k / steps, y = ay + (by - ay) * k / steps;
+          const cx = Math.floor(x / reach), cy = Math.floor(y / reach);
+          for (let i2 = cx - 1; i2 <= cx + 1; i2++) for (let j2 = cy - 1; j2 <= cy + 1; j2++) {
+            for (const other of hash.get(key(i2, j2)) || []) {
+              if (other.index === index) continue;
+              if (Math.hypot(other.x - x, other.y - y) <= reach) parent[find(index)] = find(other.index);
+            }
+          }
+          const bucket = hash.get(key(cx, cy)) || [];
+          if (!hash.has(key(cx, cy))) hash.set(key(cx, cy), bucket);
+          bucket.push({ x, y, index });
+        }
       }
-      const [segment] = rest.splice(best, 1);
-      if (bestFlip) segment.points = segment.points.slice().reverse();
-      ordered.push(segment);
-      end = segment.points.at(-1);
+    });
+    const groups = new Map();
+    segments.forEach((segment, index) => {
+      const root = find(index);
+      if (!groups.has(root)) groups.set(root, []);
+      groups.get(root).push(segment);
+    });
+    const endsOf = (segment) => [segment.points[0], segment.points.at(-1)];
+    const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) * mm;
+    // Greedy nearest-neighbour walk through one region from a given first row and direction.
+    const walk = (rows, startIndex, startFlip) => {
+      const rest = rows.slice(), order = [];
+      let first = rest.splice(startIndex, 1)[0], cost = 0, jumps = 0;
+      if (startFlip) first = { ...first, points: first.points.slice().reverse() };
+      order.push(first);
+      let end = first.points.at(-1);
+      while (rest.length) {
+        let best = 0, bestDist = Infinity, bestFlip = false;
+        for (let i = 0; i < rest.length; i++) {
+          const pts = rest[i].points;
+          const head = dist(pts[0], end), tail = dist(pts.at(-1), end);
+          if (head < bestDist) { best = i; bestDist = head; bestFlip = false; }
+          if (tail < bestDist) { best = i; bestDist = tail; bestFlip = true; }
+        }
+        let [next] = rest.splice(best, 1);
+        if (bestFlip) next = { ...next, points: next.points.slice().reverse() };
+        if (bestDist > 1.2) { jumps++; cost += bestDist; }
+        order.push(next); end = next.points.at(-1);
+      }
+      return { order, cost: jumps * 10 + cost };
+    };
+    const regions = [...groups.values()];
+    const ordered = [];
+    let end = null;
+    while (regions.length) {
+      // Pick the region whose nearest row end is closest to where the needle is.
+      let regionIndex = 0, regionDist = Infinity;
+      if (end) {
+        regions.forEach((rows, r) => {
+          for (const row of rows) for (const p of endsOf(row)) {
+            const d = dist(p, end);
+            if (d < regionDist) { regionDist = d; regionIndex = r; }
+          }
+        });
+      }
+      const [rows] = regions.splice(regionIndex, 1);
+      // Candidate starts: the four extreme row ends of the region, plus the end closest to the needle.
+      const candidates = [];
+      const addCandidate = (score) => {
+        let best = null;
+        rows.forEach((row, i) => endsOf(row).forEach((p, side) => {
+          const s = score(p);
+          if (!best || s < best.s) best = { i, flip: side === 1, s };
+        }));
+        if (best) candidates.push(best);
+      };
+      addCandidate((p) => p.x); addCandidate((p) => -p.x);
+      addCandidate((p) => p.y); addCandidate((p) => -p.y);
+      if (end) addCandidate((p) => dist(p, end));
+      let result = null;
+      const tries = rows.length > 1500 ? candidates.slice(-1) : candidates;
+      const seen = new Set();
+      for (const c of tries) {
+        const id = `${c.i}|${c.flip}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const attempt = walk(rows, c.i, c.flip);
+        const entry = end ? dist(attempt.order[0].points[0], end) : 0;
+        const total = attempt.cost + (entry > 1.2 ? 10 + entry : 0);
+        if (!result || total < result.total) result = { order: attempt.order, total };
+      }
+      ordered.push(...result.order);
+      end = result.order.at(-1).points.at(-1);
     }
     return ordered;
-  }
-  async function outlineSegments(colors, colorIndex, ppu) {
+  }  async function outlineSegments(colors, colorIndex, ppu) {
     const mode = $("#outline-mode").value;
     const satin = mode === "satin";
     const widthMm = Math.max(1, Math.min(6, Number($("#outline-width").value) || 2.5));
@@ -1758,9 +1930,9 @@
           throw new Error(`Invalid stroke or smoothing settings for ${color}.`);
         }
         if ($("#underlay").value === "grid") {
-          segments.push(...orderSegments(await scanColor(color, angle + 90, Math.max(.65, spacing * 2), ppu, settings.strokeMm, settings.smoothMm)).map((segment) => ({ ...segment, color: colorIndex })));
+          segments.push(...orderSegments(await scanColor(color, angle + 90, Math.max(.65, spacing * 2), ppu, settings.strokeMm, settings.smoothMm), Math.max(.65, spacing * 2)).map((segment) => ({ ...segment, color: colorIndex })));
         }
-        segments.push(...orderSegments(await scanColor(color, angle, spacing, ppu, settings.strokeMm, settings.smoothMm)).map((segment) => ({ ...segment, color: colorIndex })));
+        segments.push(...orderSegments(await scanColor(color, angle, spacing, ppu, settings.strokeMm, settings.smoothMm), spacing).map((segment) => ({ ...segment, color: colorIndex })));
         if (segments.reduce((total, seg) => total + seg.points.length, 0) > 100000) throw new Error("This design exceeds 100,000 planned stitches. Increase row spacing or simplify the artwork.");
       }
       if ($("#outline-mode").value !== "off") {
@@ -1803,7 +1975,106 @@
     }
     return state.pyodidePromise;
   }
-  async function exportPes() {
+  // For each segment: null when it needs a trim + jump, otherwise the list of intermediate travel
+  // points (possibly empty) to sew from the previous segment's end. Tiny gaps are stitched directly.
+  // Larger gaps are crossed with a running stitch that follows existing same-colour stitching
+  // (A* over a coverage grid), so it is buried in the fill and never crosses open fabric.
+  function planJoins(stitches = state.stitches, spacingMm = Number($("#spacing").value) || .2) {
+    const mm = 25.4, joinLimit = 1.2, maxTravel = 45, cell = Math.max(.3, spacingMm * 1.2), stitchMm = 3;
+    const keyOf = (cx, cy) => cx * 8192 + cy;
+    const cover = new Map();
+    for (const seg of stitches) {
+      let set = cover.get(seg.color);
+      if (!set) cover.set(seg.color, set = new Set());
+      for (let i = 0; i < seg.points.length; i++) {
+        const q = seg.points[i], p = seg.points[Math.max(0, i - 1)];
+        const ax = p.x * mm, ay = p.y * mm, bx = q.x * mm, by = q.y * mm;
+        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / (cell * .5)));
+        for (let k = 0; k <= steps; k++) set.add(keyOf(Math.floor((ax + (bx - ax) * k / steps) / cell), Math.floor((ay + (by - ay) * k / steps) / cell)));
+      }
+    }
+    const lineCovered = (set, a, b) => {
+      const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (cell * .5));
+      for (let k = 1; k < steps; k++) {
+        const t = k / steps;
+        if (!set.has(keyOf(Math.floor((a.x + (b.x - a.x) * t) / cell), Math.floor((a.y + (b.y - a.y) * t) / cell)))) return false;
+      }
+      return true;
+    };
+    const travel = (color, from, to) => {
+      const set = cover.get(color);
+      const a = { x: from.x * mm, y: from.y * mm }, b = { x: to.x * mm, y: to.y * mm };
+      const toInches = (p) => ({ x: p.x / mm, y: p.y / mm });
+      const straight = Math.hypot(b.x - a.x, b.y - a.y);
+      let route = null;
+      if (lineCovered(set, a, b)) route = [a, b];
+      else {
+        const sx = Math.floor(a.x / cell), sy = Math.floor(a.y / cell), gx = Math.floor(b.x / cell), gy = Math.floor(b.y / cell);
+        const h = (x, y) => Math.hypot(x - gx, y - gy) * cell;
+        const best = new Map([[keyOf(sx, sy), 0]]), from2 = new Map();
+        const heap = [[h(sx, sy), sx, sy]];
+        const push = (item) => {
+          heap.push(item); let i = heap.length - 1;
+          while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; }
+        };
+        const pop = () => {
+          const top = heap[0], last = heap.pop();
+          if (heap.length) {
+            heap[0] = last; let i = 0;
+            for (;;) {
+              const l = 2 * i + 1, r = l + 1; let m = i;
+              if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+              if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+              if (m === i) break;
+              [heap[m], heap[i]] = [heap[i], heap[m]]; i = m;
+            }
+          }
+          return top;
+        };
+        let found = false;
+        while (heap.length) {
+          const [, x, y] = pop();
+          if (x === gx && y === gy) { found = true; break; }
+          const g = best.get(keyOf(x, y));
+          for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+            if (!dx && !dy) continue;
+            const nx = x + dx, ny = y + dy, nk = keyOf(nx, ny);
+            if (!set.has(nk) && !(nx === gx && ny === gy)) continue;
+            const cost = g + (dx && dy ? 1.414 : 1) * cell;
+            if (cost > maxTravel || cost >= (best.get(nk) ?? Infinity)) continue;
+            best.set(nk, cost); from2.set(nk, keyOf(x, y));
+            push([cost + h(nx, ny), nx, ny]);
+          }
+        }
+        if (!found) return null;
+        const cells = [];
+        for (let k = keyOf(gx, gy); k !== undefined; k = from2.get(k)) cells.push(k);
+        cells.reverse();
+        const pts = cells.map((k) => ({ x: (Math.floor(k / 8192) + .5) * cell, y: ((k % 8192) + .5) * cell }));
+        pts[0] = a; pts[pts.length - 1] = b;
+        route = [a];
+        for (let i = 0; i < pts.length - 1;) {
+          let j = pts.length - 1;
+          while (j > i + 1 && !lineCovered(set, pts[i], pts[j])) j--;
+          route.push(pts[j]); i = j;
+        }
+      }
+      const out = [];
+      for (let i = 1; i < route.length; i++) {
+        const p = route[i - 1], q = route[i], pieces = Math.max(1, Math.ceil(Math.hypot(q.x - p.x, q.y - p.y) / stitchMm));
+        for (let k = 1; k <= pieces; k++) if (i < route.length - 1 || k < pieces) out.push(toInches({ x: p.x + (q.x - p.x) * k / pieces, y: p.y + (q.y - p.y) * k / pieces }));
+      }
+      return out;
+    };
+    return stitches.map((segment, index) => {
+      const previous = stitches[index - 1];
+      if (!previous || previous.color !== segment.color) return null;
+      const from = previous.points.at(-1), to = segment.points[0];
+      const gap = Math.hypot(to.x - from.x, to.y - from.y) * mm;
+      if (gap <= joinLimit) return [];
+      return travel(segment.color, from, to);
+    });
+  }  async function exportPes() {
     const baseName = ($("#file-name").value.replace(/\.pes$/i, "").replace(/[\\/:*?"<>|\x00-\x1f]/g, "").trim().replace(/[. ]+$/, "")) || "Embroidery File";
     let handle;
     try { handle = await pickSaveHandle(`${baseName}.pes`, "Brother PES embroidery file", "application/octet-stream", ".pes"); }
@@ -1820,15 +2091,18 @@
         x: (point.x - state.hoopW / 2) * 254 * flipX,
         y: (point.y - state.hoopH / 2) * 254 * flipY
       });
-      const joinLimit = 3 / 25.4;
+      const joins = planJoins();
       state.stitches.forEach((segment, index) => {
         const colorIndex = segment.color;
         const first = toPesPoint(segment.points[0]);
         const previous = state.stitches[index - 1];
         const lastPoint = previous && previous.color === colorIndex ? previous.points.at(-1) : null;
-        const gap = lastPoint ? Math.hypot(segment.points[0].x - lastPoint.x, segment.points[0].y - lastPoint.y) : Infinity;
-        if (gap <= joinLimit) {
-          // Short connections are sewn so the machine does not cut the thread between every row.
+        if (joins[index]) {
+          // Connections are sewn so the machine does not cut the thread between every row.
+          for (const point of joins[index]) {
+            const travelPoint = toPesPoint(point);
+            events.push({ cmd: "stitch", color: colorIndex, x: travelPoint.x, y: travelPoint.y });
+          }
           events.push({ cmd: "stitch", color: colorIndex, x: first.x, y: first.y });
         } else {
           if (lastPoint) events.push({ cmd: "trim", color: colorIndex, x: toPesPoint(lastPoint).x, y: toPesPoint(lastPoint).y });
@@ -2133,7 +2407,7 @@ json.dumps({
   window.stitchStudioBridge = {
     async getDesign() {
       if (state.stale || !state.stitches.length) await makeStitches();
-      return { colors: state.stitchColors, segments: state.stitches, hoopW: state.hoopW, hoopH: state.hoopH };
+      return { colors: state.stitchColors, segments: state.stitches, joins: planJoins(), hoopW: state.hoopW, hoopH: state.hoopH };
     },
     async readPes(bytes) {
       const pyodide = await loadPyodideWriter();

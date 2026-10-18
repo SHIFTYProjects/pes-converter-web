@@ -28,7 +28,9 @@
       }
     }
     if (!Number.isFinite(minX)) throw new Error("This design contains no stitches.");
-    return { name, source, colors, segs, stitches, perColor, bounds: { minX, minY, maxX, maxY }, ...extra };
+    const model = { name, source, colors, segs, stitches, perColor, bounds: { minX, minY, maxX, maxY }, ...extra };
+    model.spacing = Math.min(1.2, Math.max(.15, model.rowSpacing ?? estimateRowSpacing(segs) ?? .4));
+    return model;
   }
 
   function fit() {
@@ -49,6 +51,17 @@
     if (!w || !h) return;
     canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
     if (model) fit();
+  }
+
+  const shadeCache = new Map();
+  function shades(hex) {
+    let s = shadeCache.get(hex);
+    if (s) return s;
+    const n = parseInt(hex.slice(1, 7), 16) || 0, r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
+    const mix = (k, t) => `rgb(${Math.round(r + (t - r) * k)},${Math.round(g + (t - g) * k)},${Math.round(b + (t - b) * k)})`;
+    s = { base: hex, dark: mix(.55, 0), light: mix(.45, 255) };
+    shadeCache.set(hex, s);
+    return s;
   }
 
   function draw() {
@@ -72,22 +85,36 @@
       ctx.strokeRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY);
       ctx.setLineDash([]);
     }
-    ctx.lineWidth = Math.max(.38, 1.1 * px);
-    let remaining = progress, needle = null;
+    const showJumps = $("#viewer-jumps").checked;
+    // Thread is as wide as the row spacing, so rows just touch like a real fill; never thinner than a pixel.
+    const base = Math.max(model.spacing, 1.1 * px);
+    let remaining = progress, needle = null, prevEnd = null;
+    const jumpLines = [];
     for (const seg of model.segs) {
       if (remaining <= 0) break;
       const count = seg.p.length / 2 - 1;
       const shown = Math.min(count, remaining);
       remaining -= shown;
+      if (showJumps && seg.j && prevEnd && !hidden.has(seg.c)) jumpLines.push([prevEnd, seg]);
+      prevEnd = [seg.p[shown * 2], seg.p[shown * 2 + 1]];
       if (hidden.has(seg.c)) continue;
-      ctx.strokeStyle = model.colors[seg.c]?.hex || "#888888";
-      ctx.beginPath();
-      ctx.moveTo(seg.p[0], seg.p[1]);
-      for (let i = 1; i <= shown; i++) ctx.lineTo(seg.p[i * 2], seg.p[i * 2 + 1]);
-      ctx.stroke();
-      needle = [seg.p[shown * 2], seg.p[shown * 2 + 1]];
+      // Each segment is layered in sewing order: under-edge, thread colour, thin highlight.
+      const shade = shades(model.colors[seg.c]?.hex || "#888888");
+      for (const [color, width, offset] of [[shade.dark, base * 1.15, 0], [shade.base, base * .92, 0], [shade.light, base * .25, -base * .15]]) {
+        ctx.strokeStyle = color; ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(seg.p[0] + offset, seg.p[1] + offset);
+        for (let i = 1; i <= shown; i++) ctx.lineTo(seg.p[i * 2] + offset, seg.p[i * 2 + 1] + offset);
+        ctx.stroke();
+      }
+      needle = prevEnd;
     }
-    if (needle && progress < total) {
+    for (const [from, seg] of jumpLines) {
+      ctx.strokeStyle = seg.cc ? "rgba(90,90,110,.7)" : "rgba(230,40,70,.9)";
+      ctx.lineWidth = Math.max(.1, 1.2 * px); ctx.setLineDash([3 * px, 2 * px]);
+      ctx.beginPath(); ctx.moveTo(from[0], from[1]); ctx.lineTo(seg.p[0], seg.p[1]); ctx.stroke();
+      ctx.setLineDash([]);
+    }    if (needle && progress < total) {
       ctx.fillStyle = "#ff3b6b"; ctx.beginPath(); ctx.arc(needle[0], needle[1], 4 * px, 0, Math.PI * 2); ctx.fill();
     }
     $("#viewer-progress-label").textContent = `${Math.round(progress).toLocaleString()} / ${total.toLocaleString()} stitches`;
@@ -124,7 +151,7 @@
     const el = $("#viewer-runtime");
     if (!model || !el) return;
     const spm = Math.max(50, Number($("#viewer-speed").value) || 650);
-    const secs = model.stitches / spm * 60 + (model.colorChanges || 0) * 30 + (model.trims || 0) * 4;
+    const secs = model.stitches / spm * 60 + (model.colorChanges || 0) * 30 + (model.trims || 0) * 4 + (model.jumps || 0);
     el.textContent = `${formatTime(secs)} (about ${(secs / 60).toFixed(1)} min)`;
   }
 
@@ -203,15 +230,25 @@
       const design = await bridge().getDesign();
       const mm = 25.4;
       const colors = design.colors.map((hex) => ({ hex }));
-      const segs = design.segments.map((segment) => ({
-        c: segment.color, p: segment.points.flatMap((pt) => [pt.x * mm, pt.y * mm])
-      })).filter((segment) => segment.p.length >= 4);
-      const trimCount = segs.filter((s, i) => i && s.c === segs[i - 1].c).length;
-      const changeCount = segs.filter((s, i) => i && s.c !== segs[i - 1].c).length;
+      const segs = [];
+      let jumpCount = 0, trimCount = 0, changeCount = 0;
+      design.segments.forEach((segment, index) => {
+        const previous = design.segments[index - 1];
+        const joined = design.joins[index];
+        const pts = joined ? [previous.points.at(-1), ...joined, ...segment.points] : segment.points;
+        if (pts.length < 2) return;
+        const colorChange = !!previous && previous.color !== segment.color;
+        if (colorChange) changeCount++;
+        if (!joined) { jumpCount++; if (previous && !colorChange) trimCount++; }
+        segs.push({
+          c: segment.color, p: pts.flatMap((pt) => [pt.x * mm, pt.y * mm]),
+          j: !joined && !!previous, cc: colorChange
+        });
+      });
       const rowSpacing = Number($("#spacing").value);
       show(buildModel($("#file-name").value.trim() || "Current design", "Current design (unsaved)", colors, segs, {
         hoop: { minX: 0, minY: 0, maxX: design.hoopW * mm, maxY: design.hoopH * mm },
-        trims: trimCount, colorChanges: changeCount, rowSpacing: Number.isFinite(rowSpacing) ? rowSpacing : null
+        jumps: jumpCount, trims: trimCount, colorChanges: changeCount, rowSpacing: Number.isFinite(rowSpacing) ? rowSpacing : null
       }));
       setStatus("Showing the current stitch plan. Output orientation settings apply only to the exported file.");
     } catch (error) {
@@ -225,7 +262,10 @@
       setStatus(`Reading ${file.name}… the first use downloads the PES reader (internet required).`);
       const bytes = new Uint8Array(await file.arrayBuffer());
       const parsed = await bridge().readPes(bytes);
-      const segs = parsed.segs.map((segment) => ({ c: segment.c, p: segment.p.map((v) => v / 10) }));
+      const segs = parsed.segs.map((segment, index) => ({
+        c: segment.c, p: segment.p.map((v) => v / 10), j: index > 0,
+        cc: index > 0 && parsed.segs[index - 1].c !== segment.c
+      }));
       const colors = parsed.colors.length ? parsed.colors : [{ hex: "#888888" }];
       show(buildModel(file.name, "PES file", colors, segs, {
         jumps: parsed.jumps, trims: parsed.trims, colorChanges: parsed.colorChanges, fileBytes: bytes.length
@@ -250,7 +290,7 @@
   $("#viewer-fit").addEventListener("click", () => model && fit());
   $("#viewer-play").addEventListener("click", play);
   slider.addEventListener("input", () => { stop(); progress = Number(slider.value); draw(); });
-  for (const id of ["#viewer-fabric", "#viewer-hoop", "#viewer-bounds"]) $(id).addEventListener("input", draw);
+  for (const id of ["#viewer-fabric", "#viewer-hoop", "#viewer-bounds", "#viewer-jumps"]) $(id).addEventListener("input", draw);
   $("#viewer-speed").addEventListener("input", updateRuntime);
   new ResizeObserver(resize).observe(canvas);
 
