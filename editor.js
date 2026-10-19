@@ -589,7 +589,7 @@
     for (const obj of state.objects) renderObject(obj);
     drawStitches();
     drawSelection(selectedObject());
-    updateProperties(); renderLayers(); renderPalette();
+    updateProperties(); renderLayers(); renderColorOrder(); renderPalette();
     drawEdgePreview();
     updateTraceSummary();
     $("#stitch-count").textContent = state.stitches.length ? state.stitches.reduce((n, segment) => n + segment.points.length - 1, 0).toLocaleString() : "—";
@@ -1488,6 +1488,51 @@
     [state.objects[index], state.objects[targetIndex]] = [state.objects[targetIndex], state.objects[index]];
     changed();
   }
+  // Colors of an image from bottom to top, ordered by each color's topmost region.
+  function imageColorOrder(obj) {
+    const last = new Map();
+    obj.regions.forEach((region, index) => { if (region.fill !== "none") last.set(region.fill, index); });
+    return [...last.entries()].sort((a, b) => a[1] - b[1]).map(([color]) => color);
+  }
+  function renderColorOrder() {
+    const obj = selectedObject(), root = $("#color-layers"); root.replaceChildren();
+    const order = obj && obj.type === "image" ? imageColorOrder(obj) : [];
+    $("#color-order").hidden = order.length < 2;
+    [...order].reverse().forEach((color, visualIndex) => {
+      const row = document.createElement("div"); row.className = "layer-row";
+      const label = document.createElement("span"); label.className = "layer";
+      const swatch = document.createElement("i"); swatch.style.background = color;
+      const text = document.createElement("span"); text.textContent = color.toUpperCase();
+      label.append(swatch, text);
+      const actions = document.createElement("span"); actions.className = "layer-reorder";
+      for (const [direction, symbol, title, disabled] of [
+        ["up", "▲", "Move color forward", visualIndex === 0],
+        ["down", "▼", "Move color backward", visualIndex === order.length - 1]
+      ]) {
+        const button = document.createElement("button");
+        button.type = "button"; button.className = "layer-arrow"; button.dataset.colorAction = direction;
+        button.dataset.color = color; button.disabled = disabled;
+        button.setAttribute("aria-label", `${title}: ${color.toUpperCase()}`);
+        button.title = title; button.textContent = symbol;
+        actions.appendChild(button);
+      }
+      row.append(label, actions); root.appendChild(row);
+    });
+  }
+  function moveImageColor(color, direction) {
+    const obj = selectedObject();
+    if (!obj || obj.type !== "image") return;
+    const order = imageColorOrder(obj), index = order.indexOf(color), target = index + direction;
+    if (index < 0 || target < 0 || target >= order.length) return;
+    snapshot();
+    [order[index], order[target]] = [order[target], order[index]];
+    const rank = new Map(order.map((fill, position) => [fill, position]));
+    obj.regions = obj.regions.map((region, position) => ({ region, position }))
+      .sort((a, b) => (rank.get(a.region.fill) ?? -1) - (rank.get(b.region.fill) ?? -1) || a.position - b.position)
+      .map(({ region }) => region);
+    state.selectedRegion = null;
+    changed();
+  }
   function setHoop(width, height) {
     if (!(Number.isFinite(width) && Number.isFinite(height) && width >= 1 && height >= 1 && width <= 12 && height <= 12)) {
       message("Canvas dimensions must each be between 1 and 12 inches.", "error");
@@ -1603,6 +1648,56 @@
     viewBox(); changed();
   }
 
+  const regionBoxCache = new WeakMap();
+  // Bounding box of a region's path in image coordinates, or null when it cannot be bounded safely.
+  function regionBox(region) {
+    if (regionBoxCache.has(region) && regionBoxCache.get(region).d === region.d) return regionBoxCache.get(region).box;
+    let box = null;
+    if (!/[^MLQCZ0-9eE.,+\s-]/.test(region.d)) {
+      const numbers = region.d.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || [];
+      const pad = (Number(region.brushWidth) || 0) / 2 + .01;
+      if (numbers.length >= 2) {
+        box = { x1: Infinity, y1: Infinity, x2: -Infinity, y2: -Infinity };
+        for (let i = 0; i + 1 < numbers.length; i += 2) {
+          const x = Number(numbers[i]), y = Number(numbers[i + 1]);
+          box.x1 = Math.min(box.x1, x - pad); box.x2 = Math.max(box.x2, x + pad);
+          box.y1 = Math.min(box.y1, y - pad); box.y2 = Math.max(box.y2, y + pad);
+        }
+      }
+    }
+    regionBoxCache.set(region, { d: region.d, box });
+    return box;
+  }
+  // Traced regions never overlap each other, so only drawn strokes/shapes (which carry `gen`) can overlap anything.
+  function regionCoverMask(obj, index, group) {
+    const region = obj.regions[index], lowerIsOverlay = region.gen !== undefined, box = regionBox(region);
+    const above = [];
+    for (let j = index + 1; j < obj.regions.length; j++) {
+      const other = obj.regions[j];
+      if (other.fill === "none" || (!lowerIsOverlay && other.gen === undefined)) continue;
+      const otherBox = regionBox(other);
+      if (box && otherBox && (otherBox.x2 < box.x1 || otherBox.x1 > box.x2 || otherBox.y2 < box.y1 || otherBox.y1 > box.y2)) continue;
+      above.push(other);
+    }
+    if (!above.length) return null;
+    const id = `stitch-${obj.id}-region-cover-${index}`;
+    const w = Number(obj.naturalW) || obj.baseW, h = Number(obj.naturalH) || obj.baseH;
+    const mask = node("mask", {
+      id, x: -w, y: -h, width: w * 3, height: h * 3,
+      maskUnits: "userSpaceOnUse", maskContentUnits: "userSpaceOnUse", "mask-type": "luminance"
+    });
+    mask.appendChild(node("rect", { x: -w, y: -h, width: w * 3, height: h * 3, fill: "white" }));
+    for (const other of above) {
+      const brushWidth = Number(other.brushWidth) || 0;
+      mask.appendChild(node("path", {
+        d: other.d, fill: brushWidth && !other.filled ? "none" : "#000",
+        stroke: brushWidth ? "#000" : "none", "stroke-width": brushWidth,
+        "stroke-linecap": "round", "stroke-linejoin": "round"
+      }));
+    }
+    const defs = node("defs"); defs.appendChild(mask); group.appendChild(defs);
+    return `url(#${id})`;
+  }
   function colorSceneSvg(color, angle, ppu) {
     const w = Math.ceil(state.hoopW * 25.4 * ppu), h = Math.ceil(state.hoopH * 25.4 * ppu);
     const root = node("svg", { xmlns: NS, width: w, height: h, viewBox: `0 0 ${state.hoopW} ${state.hoopH}` });
@@ -1612,22 +1707,26 @@
       const group = node("g", { transform: transformFor(obj) });
       const mask = obj.type === "image" ? null : appendObjectMask(group, obj, prefix);
       const content = node("g", { mask });
-      const colorPath = (d, fill, parent = content, brushWidth = 0, filled = false) => {
+      const colorPath = (d, fill, parent = content, brushWidth = 0, filled = false, cover = null) => {
         if (!match(fill)) return;
         parent.appendChild(node("path", {
           d, fill: brushWidth && !filled ? "none" : paint,
           stroke: brushWidth ? paint : "none",
           "stroke-width": brushWidth,
-          "stroke-linecap": "round", "stroke-linejoin": "round"
+          "stroke-linecap": "round", "stroke-linejoin": "round",
+          mask: cover
         }));
       };
       if (obj.type === "image") {
         const imageContent = node("g", {
           transform: `translate(${-Number(obj.cropX || 0)} ${-Number(obj.cropY || 0)})`
         });
-        for (const region of obj.regions) {
-          if (match(region.fill)) colorPath(region.d, region.fill, regionHost(imageContent, group, obj, prefix, region), Number(region.brushWidth) || 0, region.filled);
-        }
+        obj.regions.forEach((region, index) => {
+          if (!match(region.fill)) return;
+          // Higher regions in the same image cover this one, so their overlap is only stitched once.
+          const cover = prefix === "stitch" ? regionCoverMask(obj, index, group) : null;
+          colorPath(region.d, region.fill, regionHost(imageContent, group, obj, prefix, region), Number(region.brushWidth) || 0, region.filled, cover);
+        });
         group.appendChild(imageContent);
       } else if (obj.type === "text") {
         if (match(obj.fill)) {
@@ -1889,9 +1988,11 @@
     return ordered;
   }  async function outlineSegments(colors, colorIndex, ppu) {
     const mode = $("#outline-mode").value;
-    const satin = mode === "satin";
-    const widthMm = Math.max(1, Math.min(6, Number($("#outline-width").value) || 2.5));
-    const offsetPx = Math.round((satin ? widthMm / 2 : .4) * ppu);
+    const satin = mode === "satin", bold = mode === "bold";
+    const widthMm = bold
+      ? Math.max(.5, Math.min(6, Number($("#bold-width").value) || 1))
+      : Math.max(1, Math.min(6, Number($("#outline-width").value) || 2.5));
+    const offsetPx = Math.round(((satin || bold) ? widthMm / 2 : .4) * ppu);
     const pad = offsetPx + 4;
     const probe = colorSceneSvg(colors[0], 0, ppu);
     const w = probe.width + pad * 2, h = probe.height + pad * 2;
@@ -1934,18 +2035,31 @@
     const segments = [];
     for (const contour of traceOuterContours(mask, w, h)) {
       const smooth = smoothClosedPath(contour, 9);
-      const stepPx = (satin ? .4 : 2.5) * ppu;
+      const stepPx = (satin ? .4 : bold ? 2 : 2.5) * ppu;
       const path = resampleClosedPath(smooth, stepPx);
       if (path.length < 4) continue;
       let points;
-      if (satin) {
-        const half = widthMm / 2 * ppu, reach = 4;
+      const normalAt = (i, reach) => {
+        const before = path[(i - reach + path.length) % path.length], after = path[(i + reach) % path.length];
+        const tx = after.x - before.x, ty = after.y - before.y, length = Math.hypot(tx, ty) || 1;
+        return { x: -ty / length, y: tx / length };
+      };
+      if (bold) {
+        // Closely spaced parallel running-stitch loops fill the stroke width, giving a solid band rather than a zigzag.
+        const passes = Math.max(2, Math.ceil(widthMm / .35) + 1), line = [];
+        for (let k = 0; k < passes; k++) {
+          const offset = (k / (passes - 1) - .5) * widthMm * ppu;
+          const pass = path.map((p, i) => { const n = normalAt(i, 4); return { x: p.x + n.x * offset, y: p.y + n.y * offset }; });
+          pass.push(pass[0]);
+          line.push(...pass);
+        }
+        points = line.map(toInches);
+      } else if (satin) {
+        const half = widthMm / 2 * ppu;
         points = [];
         path.forEach((p, i) => {
-          const before = path[(i - reach + path.length) % path.length], after = path[(i + reach) % path.length];
-          const tx = after.x - before.x, ty = after.y - before.y, length = Math.hypot(tx, ty) || 1;
-          const side = i % 2 ? 1 : -1;
-          points.push(toInches({ x: p.x + side * half * -ty / length, y: p.y + side * half * tx / length }));
+          const n = normalAt(i, 4), side = i % 2 ? 1 : -1;
+          points.push(toInches({ x: p.x + side * half * n.x, y: p.y + side * half * n.y }));
         });
       } else {
         points = [...path, path[0]].map(toInches);
@@ -2047,8 +2161,12 @@
           || !Number.isFinite(Number(settings.smoothMm)) || settings.smoothMm < 0 || settings.smoothMm > 5) {
           throw new Error(`Invalid stroke or smoothing settings for ${color}.`);
         }
-        if ($("#underlay").value === "grid") {
-          segments.push(...orderSegments(await scanColor(color, angle + 90, Math.max(.65, spacing * 2), ppu, settings.strokeMm, settings.smoothMm), Math.max(.65, spacing * 2)).map((segment) => ({ ...segment, color: colorIndex })));
+        const underlay = $("#underlay").value;
+        if (underlay !== "none") {
+          const underlaySpacing = underlay === "heavy" ? Math.max(.3, spacing)
+            : underlay === "medium" ? Math.max(.45, spacing * 1.5)
+              : Math.max(.65, spacing * 2);
+          segments.push(...orderSegments(await scanColor(color, angle + 90, underlaySpacing, ppu, settings.strokeMm, settings.smoothMm), underlaySpacing).map((segment) => ({ ...segment, color: colorIndex })));
         }
         segments.push(...orderSegments(await scanColor(color, angle, spacing, ppu, settings.strokeMm, settings.smoothMm), spacing).map((segment) => ({ ...segment, color: colorIndex })));
         if (segments.reduce((total, seg) => total + seg.points.length, 0) > 100000) throw new Error("This design exceeds 100,000 planned stitches. Increase row spacing or simplify the artwork.");
@@ -2441,6 +2559,10 @@ json.dumps({
     const button = event.target.closest("[data-select-id]"); if (!button) return;
     state.selectedId = button.dataset.selectId; state.selectedRegion = null; render();
   });
+  $("#color-layers").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-color-action]");
+    if (button) moveImageColor(button.dataset.color, button.dataset.colorAction === "up" ? 1 : -1);
+  });
   $("#palette").addEventListener("change", (event) => {
     const input = event.target.closest("[data-palette-color]"); if (!input) return;
     const previous = input.dataset.paletteColor, next = input.value;
@@ -2530,8 +2652,10 @@ json.dumps({
   $("#underlay").addEventListener("change", invalidateStitches);
   $("#outline-mode").addEventListener("change", () => {
     $("#outline-width-row").hidden = $("#outline-mode").value !== "satin";
+    $("#bold-width-row").hidden = $("#outline-mode").value !== "bold";
     invalidateStitches();
   });
+  $("#bold-width").addEventListener("change", invalidateStitches);
   $("#outline-color").addEventListener("change", invalidateStitches);
   $("#outline-width").addEventListener("change", invalidateStitches);
   $("#stitch-preview-toggle").addEventListener("change", () => {

@@ -134,6 +134,11 @@
         <div class="layer-head"><h3>Layers</h3><div class="layer-actions"><button class="secondary" id="delete-layer" title="Delete selected layer" disabled>Delete</button></div></div>
         <div class="small">Use the arrows to move layers forward or backward; top rows appear in front.</div>
         <div class="layers" id="layers" aria-label="Artwork layers"></div>
+        <div id="color-order" hidden>
+          <div class="layer-head"><h3>Color order</h3></div>
+          <div class="small">Colors in the selected image. Move a color forward to cover the others; covered areas are not stitched.</div>
+          <div class="layers" id="color-layers" aria-label="Color order in the selected image"></div>
+        </div>
       </section>
       <section class="panel">
         <h2>Color edge adjustments</h2>
@@ -156,9 +161,10 @@
         <div class="row"><label for="angle">Fill angle</label><input id="angle" type="number" min="0" max="179" step="5" value="15"><span class="small">°</span></div>
         <div class="row"><label for="output-orientation">Output orientation</label><select id="output-orientation"><option value="standard" selected>Standard</option><option value="mirror-x">Mirror horizontally</option><option value="mirror-y">Flip vertically</option><option value="rotate-180">Rotate 180°</option></select></div>
         <div class="small">Use if your machine or viewer shows the design mirrored.</div>
-        <div class="row"><label for="underlay">Underlay</label><select id="underlay"><option value="none">Off</option><option value="grid">Light crosshatch</option></select></div>
-        <div class="row"><label for="outline-mode">Outline</label><select id="outline-mode"><option value="off">Off</option><option value="running">Thin running stitch</option><option value="satin">Thick satin stitch</option></select><input id="outline-color" type="color" value="#000000" aria-label="Outline thread color"></div>
+        <div class="row"><label for="underlay">Underlay</label><select id="underlay"><option value="none">Off</option><option value="light" selected>Light crosshatch</option><option value="medium">Medium crosshatch</option><option value="heavy">Heavy crosshatch</option></select></div>
+        <div class="row"><label for="outline-mode">Outline</label><select id="outline-mode"><option value="off">Off</option><option value="running">Thin running stitch</option>        <option value="satin">Thick satin stitch</option><option value="bold">Bold stroke</option></select><input id="outline-color" type="color" value="#000000" aria-label="Outline thread color"></div>
         <div class="row" id="outline-width-row" hidden><label for="outline-width">Satin width</label><input id="outline-width" type="number" min="1" max="6" step=".5" value="2.5"><span class="small">mm</span></div>
+                <div class="row" id="bold-width-row" hidden><label for="bold-width">Line width</label><input id="bold-width" type="number" min=".5" max="6" step=".5" value="1"><span class="small">mm</span></div>
         <div class="row"><label for="stitch-preview-toggle"><input id="stitch-preview-toggle" type="checkbox"> Show stitch preview</label></div>
         <div class="statline">Estimated stitches: <strong id="stitch-count">—</strong></div>
         <div class="statline">Design bounds: <strong id="design-size">—</strong></div>
