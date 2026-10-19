@@ -281,8 +281,15 @@
     resize();
   }
 
-  $("#open-previewer").addEventListener("click", () => { open(); showCurrent(); });
-  $("#open-viewer-top").addEventListener("click", open);
+  function clearModel() {
+    stop();
+    model = null; hidden = new Set(); total = 0; progress = 0;
+    $("#viewer-empty").hidden = false;
+    draw();
+  }
+
+  $("#open-previewer").addEventListener("click", () => { open(); clearModel(); showCurrent(); });
+  $("#open-viewer-top").addEventListener("click", () => { open(); clearModel(); showCurrent(); });
   $("#viewer-current").addEventListener("click", showCurrent);
   $("#viewer-open-file").addEventListener("change", (event) => { showFile(event.target.files[0]); event.target.value = ""; });
   $("#viewer-close").addEventListener("click", () => { stop(); dialog.close(); });

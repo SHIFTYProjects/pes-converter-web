@@ -95,7 +95,7 @@
         <label>Color <input id="active-color" type="color" value="#315ce8" aria-label="Active thread color"></label>
         <label>Brush (mm) <input id="brush-size" type="range" min=".5" max="10" step=".5" value="4" aria-label="Paint and eraser brush width in millimeters"></label>
         <span id="brush-size-label" class="small">4.0 mm</span>
-        <label>Canvas zoom <input id="zoom" type="range" min="25" max="500" step="1" value="100" aria-label="Canvas zoom"></label>
+        <label>Canvas zoom <input id="zoom" type="range" min="25" max="800" step="1" value="100" aria-label="Canvas zoom"></label>
         <span id="zoom-label" class="small">100%</span>
         <button class="tool" id="fit-view" title="Show the full hoop">Fit hoop</button>
         <button class="tool" id="undo" title="Undo (Ctrl+Z)">↶</button>
@@ -128,7 +128,7 @@
         <button class="secondary wide" id="retrace-image" disabled>Retrace selected image</button>
         <div class="small">Select an image layer, choose a color count, then retrace it.</div>
         <div class="row"><label for="trace-detail">Trace cleanup</label><input id="trace-detail" type="range" min="10" max="100" step="5" value="40"><span id="trace-detail-value" class="small">40%</span></div>
-        <div class="small">Lower cleanup drops small fragments; higher keeps fine detail. Retrace to apply.</div>
+        <div class="small">Lower cleanup drops small fragments and thin slivers; higher keeps fine detail. Applies live to the selected image.</div>
         <label class="small"><input id="ignore-white" type="checkbox"> Exclude all near-white regions</label>
         <div class="small">Use the fewest colors that keep the look. Color Remover excludes one clicked region.</div>
         <div class="layer-head"><h3>Layers</h3><div class="layer-actions"><button class="secondary" id="delete-layer" title="Delete selected layer" disabled>Delete</button></div></div>

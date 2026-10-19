@@ -124,7 +124,7 @@
     updateHoopSummary();
     const zoomPercent = Math.round(state.zoom * 100);
     $("#zoom-label").textContent = `${zoomPercent}%`;
-    $("#zoom").value = String(Math.max(25, Math.min(500, zoomPercent)));
+    $("#zoom").value = String(Math.max(25, Math.min(800, zoomPercent)));
     fitStageToHoop();
     updateToolCursor();
   }
@@ -145,7 +145,7 @@
     $("#hoop-summary").textContent = `Active hoop: ${state.hoopW} × ${state.hoopH} in (${orientation})`;
   }
   function zoomCanvas(zoom, anchor) {
-    const nextZoom = Math.max(.25, Math.min(5, zoom));
+    const nextZoom = Math.max(.25, Math.min(8, zoom));
     const oldWidth = state.hoopW / state.zoom, oldHeight = state.hoopH / state.zoom;
     const nextWidth = state.hoopW / nextZoom, nextHeight = state.hoopH / nextZoom;
     const centerX = state.viewX + oldWidth / 2, centerY = state.viewY + oldHeight / 2;
@@ -1258,7 +1258,46 @@
       const color = palette[smoothed[p]];
       data[p * 4] = color.r; data[p * 4 + 1] = color.g; data[p * 4 + 2] = color.b; data[p * 4 + 3] = 255;
     }
-  }  function traceImageElement(image, colorCount, detail) {
+  }
+  // Merges thin strips of one colour that are sandwiched between two other non-white colours into
+  // the nearer neighbour. These strips are anti-aliasing leftovers that show up as slivers once other
+  // colours are hidden. Strips against white are kept so hairline strokes survive.
+  function removeThinSlivers(imageData, palette, maxThickness) {
+    if (maxThickness < 1) return;
+    const { width, height, data } = imageData;
+    const keyOf = new Map(palette.map((c, i) => [(c.r << 16) | (c.g << 8) | c.b, i]));
+    const index = new Int16Array(width * height);
+    for (let p = 0; p < index.length; p++) index[p] = keyOf.get((data[p * 4] << 16) | (data[p * 4 + 1] << 8) | data[p * 4 + 2]) ?? -1;
+    const isWhite = (c) => c < 0 || (palette[c].r >= 238 && palette[c].g >= 238 && palette[c].b >= 238);
+    const dist = (a, b) => (palette[a].r - palette[b].r) ** 2 + (palette[a].g - palette[b].g) ** 2 + (palette[a].b - palette[b].b) ** 2;
+    const sweep = (count, lines, at) => {
+      for (let line = 0; line < lines; line++) {
+        let start = 0;
+        while (start < count) {
+          const c = index[at(line, start)];
+          let end = start;
+          while (end + 1 < count && index[at(line, end + 1)] === c) end++;
+          const before = start > 0 ? index[at(line, start - 1)] : -1;
+          const after = end + 1 < count ? index[at(line, end + 1)] : -1;
+          // A strip with white on both sides is a real hairline; a strip against any other colour is a fringe.
+          if (c >= 0 && end - start + 1 <= maxThickness && before >= 0 && after >= 0 && before !== after &&
+              !isWhite(c) && !(isWhite(before) && isWhite(after))) {
+            const target = dist(c, before) <= dist(c, after) ? before : after;
+            for (let i = start; i <= end; i++) index[at(line, i)] = target;
+          }
+          start = end + 1;
+        }
+      }
+    };
+    sweep(width, height, (line, i) => line * width + i);
+    sweep(height, width, (line, i) => i * width + line);
+    for (let p = 0; p < index.length; p++) {
+      if (index[p] < 0) continue;
+      const color = palette[index[p]];
+      data[p * 4] = color.r; data[p * 4 + 1] = color.g; data[p * 4 + 2] = color.b;
+    }
+  }
+  function traceImageElement(image, colorCount, detail) {
     const scale = Math.min(1, 900 / Math.max(image.naturalWidth, image.naturalHeight));
     const width = Math.max(1, Math.round(image.naturalWidth * scale));
     const height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -1342,6 +1381,7 @@
       }
       palette = buildImagePalette(paletteSource || traceData, effectiveColors);
       snapToPalette(traceData, palette);
+      removeThinSlivers(traceData, palette, Math.round(traceScale * (1 - quality) * 2.5));
     }
     const svgText = ImageTracer.imagedataToSVG(traceData, {
       numberofcolors: effectiveColors, colorsampling: 0, colorquantcycles: palette ? 1 : 8, layering: 0,
@@ -1359,7 +1399,8 @@
     if (!regions.length) throw new Error("No editable regions were found. Try a clearer, higher-contrast image.");
     return { width, height, regions, sourceDataUrl, traceColors: effectiveColors, monochrome };
   }
-  async function retraceSelectedImage() {
+  let liveSnapshotTaken = false;
+  async function retraceSelectedImage({ live = false } = {}) {
     const obj = selectedObject();
     if (!obj || obj.type !== "image" || !obj.sourceDataUrl) {
       message("Select an image that has its original artwork available to retrace.", "error");
@@ -1377,11 +1418,13 @@
       const traceColors = Number($("#trace-colors").value);
       const traceDetail = Number($("#trace-detail").value);
       const traced = traceImageElement(image, traceColors, traceDetail);
-      const regions = $("#ignore-white").checked
+      const whiteRemoved = (obj.regions || []).some((region) => region.fill === "none");
+      const regions = $("#ignore-white").checked || whiteRemoved
         ? traced.regions.filter((region) => !isNearWhite(region.fill))
         : traced.regions;
       if (!regions.length) throw new Error("Ignoring near-white removed every region. Turn the option off and retrace.");
-      snapshot();
+      if (!live || !liveSnapshotTaken) snapshot();
+      if (live) liveSnapshotTaken = true;
       const previousBaseW = obj.baseW, previousBaseH = obj.baseH;
       obj.regions = regions;
       obj.naturalW = traced.width; obj.naturalH = traced.height;
@@ -2313,9 +2356,24 @@ json.dumps({
   $("#trace-colors").addEventListener("change", () => {
     if (selectedObject()?.type === "image") message("Color count changed. Retrace the selected image to apply it.", "info");
   });
+  let liveTraceTimer = null, liveTraceBusy = false;
   $("#trace-detail").addEventListener("input", (event) => {
     $("#trace-detail-value").textContent = `${event.target.value}%`;
-    if (selectedObject()?.type === "image") message("Trace cleanup changed. Retrace the selected image to apply it.", "info");
+    const obj = selectedObject();
+    if (obj?.type !== "image" || !obj.sourceDataUrl) return;
+    clearTimeout(liveTraceTimer);
+    liveTraceTimer = setTimeout(async () => {
+      if (liveTraceBusy) return;
+      liveTraceBusy = true;
+      try { await retraceSelectedImage({ live: true }); } finally { liveTraceBusy = false; }
+    }, 250);
+  });
+  $("#trace-detail").addEventListener("change", () => {
+    clearTimeout(liveTraceTimer);
+    if (!liveTraceBusy && selectedObject()?.type === "image" && selectedObject().sourceDataUrl) {
+      liveTraceBusy = true;
+      retraceSelectedImage({ live: true }).finally(() => { liveTraceBusy = false; liveSnapshotTaken = false; });
+    } else liveSnapshotTaken = false;
   });
   $("#zoom").addEventListener("input", (event) => zoomCanvas(Number(event.target.value) / 100));
   $("#fit-view").addEventListener("click", () => {
@@ -2485,7 +2543,9 @@ json.dumps({
   // Used by previewer.js.
   window.stitchStudioBridge = {
     async getDesign() {
-      if (state.stale || !state.stitches.length) await makeStitches();
+      while (state.busy) await new Promise((resolve) => setTimeout(resolve, 50));
+      state.stale = true;
+      await makeStitches();
       return { colors: state.stitchColors, segments: state.stitches, joins: planJoins(), hoopW: state.hoopW, hoopH: state.hoopH };
     },
     async readPes(bytes) {
