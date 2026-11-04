@@ -1,0 +1,13 @@
+{
+  "name": "Shifty Stitch",
+  "short_name": "Shifty Stitch",
+  "description": "Turn pictures and text into machine embroidery files (PES, DST). Works offline.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#e9e3d9",
+  "theme_color": "#2a2521",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

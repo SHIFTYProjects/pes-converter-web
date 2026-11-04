@@ -75,7 +75,7 @@
     ctx.lineCap = "round"; ctx.lineJoin = "round";
     if (model.hoop && $("#viewer-hoop").checked) {
       const h = model.hoop;
-      ctx.strokeStyle = "rgba(49,92,232,.7)"; ctx.lineWidth = 1.5 * px; ctx.setLineDash([6 * px, 4 * px]);
+      ctx.strokeStyle = "rgba(156,143,124,.9)"; ctx.lineWidth = 1.5 * px; ctx.setLineDash([6 * px, 4 * px]);
       ctx.strokeRect(h.minX, h.minY, h.maxX - h.minX, h.maxY - h.minY);
       ctx.setLineDash([]);
     }
@@ -115,7 +115,7 @@
       ctx.beginPath(); ctx.moveTo(from[0], from[1]); ctx.lineTo(seg.p[0], seg.p[1]); ctx.stroke();
       ctx.setLineDash([]);
     }    if (needle && progress < total) {
-      ctx.fillStyle = "#ff3b6b"; ctx.beginPath(); ctx.arc(needle[0], needle[1], 4 * px, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#a8322b"; ctx.beginPath(); ctx.arc(needle[0], needle[1], 4 * px, 0, Math.PI * 2); ctx.fill();
     }
     $("#viewer-progress-label").textContent = `${Math.round(progress).toLocaleString()} / ${total.toLocaleString()} stitches`;
   }
@@ -151,7 +151,7 @@
     const el = $("#viewer-runtime");
     if (!model || !el) return;
     const spm = Math.max(50, Number($("#viewer-speed").value) || 650);
-    const secs = model.stitches / spm * 60 + (model.colorChanges || 0) * 30 + (model.trims || 0) * 4 + (model.jumps || 0);
+    const secs = (model.fileStitches ?? model.stitches) / spm * 60 + (model.colorChanges || 0) * 30 + (model.trims || 0) * 4 + (model.jumps || 0);
     el.textContent = `${formatTime(secs)} (about ${(secs / 60).toFixed(1)} min)`;
   }
 
@@ -161,7 +161,7 @@
       ["Source", model.source],
       ["Name", model.name],
       ["Size", `${wMm.toFixed(1)} × ${hMm.toFixed(1)} mm (${(wMm / 25.4).toFixed(2)} × ${(hMm / 25.4).toFixed(2)} in)`],
-      ["Stitches", model.stitches.toLocaleString()],
+      ["Stitches", (model.fileStitches ?? model.stitches).toLocaleString()],
       ["Colors", String(model.colors.length)]
     ];
     const spacing = model.rowSpacing ?? estimateRowSpacing(model.segs);
@@ -202,7 +202,8 @@
     slider.max = String(total); slider.value = String(total);
     $("#viewer-empty").hidden = true;
     $("#viewer-hoop-row").hidden = !model.hoop;
-    renderInfo(); fit();
+    $("#export-panel").hidden = !model.source.startsWith("Current");
+    renderInfo(); fit(); fillSize();
   }
 
   function stop() {
@@ -229,7 +230,7 @@
       setStatus("Generating stitches for the current design…");
       const design = await bridge().getDesign();
       const mm = 25.4;
-      const colors = design.colors.map((hex) => ({ hex }));
+      const colors = design.colors.map((hex) => ({ hex, desc: design.threadName ? design.threadName(hex) : "" }));
       const segs = [];
       let jumpCount = 0, trimCount = 0, changeCount = 0;
       design.segments.forEach((segment, index) => {
@@ -248,9 +249,11 @@
       const rowSpacing = Number($("#spacing").value);
       show(buildModel($("#file-name").value.trim() || "Current design", "Current design (unsaved)", colors, segs, {
         hoop: { minX: 0, minY: 0, maxX: design.hoopW * mm, maxY: design.hoopH * mm },
-        jumps: jumpCount, trims: trimCount, colorChanges: changeCount, rowSpacing: Number.isFinite(rowSpacing) ? rowSpacing : null
+        jumps: design.stats ? design.stats.jumps : jumpCount, trims: design.stats ? design.stats.trims : trimCount,
+        colorChanges: design.stats ? design.stats.colorChanges : changeCount, rowSpacing: Number.isFinite(rowSpacing) ? rowSpacing : null,
+        fileStitches: design.stats ? design.stats.stitches : null
       }));
-      setStatus("Showing the current stitch plan. Output orientation settings apply only to the exported file.");
+      setStatus("Showing the planned stitches. Press Play to watch it sew. Orientation settings only change the exported file.");
     } catch (error) {
       setStatus(error.message || "Could not build the preview.", true);
     }
@@ -259,15 +262,15 @@
   async function showFile(file) {
     if (!file) return;
     try {
-      setStatus(`Reading ${file.name}… the first use downloads the PES reader (internet required).`);
+      setStatus(`Reading ${file.name}…`);
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const parsed = await bridge().readPes(bytes);
+      const parsed = await bridge().readPes(bytes, file.name);
       const segs = parsed.segs.map((segment, index) => ({
         c: segment.c, p: segment.p.map((v) => v / 10), j: index > 0,
         cc: index > 0 && parsed.segs[index - 1].c !== segment.c
       }));
       const colors = parsed.colors.length ? parsed.colors : [{ hex: "#888888" }];
-      show(buildModel(file.name, "PES file", colors, segs, {
+      show(buildModel(file.name, /\.dst$/i.test(file.name) ? "DST file" : "PES file", colors, segs, {
         jumps: parsed.jumps, trims: parsed.trims, colorChanges: parsed.colorChanges, fileBytes: bytes.length
       }));
       setStatus(`Loaded ${file.name}.`);
@@ -285,11 +288,53 @@
     stop();
     model = null; hidden = new Set(); total = 0; progress = 0;
     $("#viewer-empty").hidden = false;
+    $("#export-panel").hidden = true;
     draw();
   }
 
-  $("#open-previewer").addEventListener("click", () => { open(); clearModel(); showCurrent(); });
   $("#open-viewer-top").addEventListener("click", () => { open(); clearModel(); showCurrent(); });
+  // Generate Stitch File: preview the design, then choose name, format, final size and save location.
+  $("#generate-file").addEventListener("click", async () => {
+    open(); clearModel();
+    await showCurrent();
+    if (model && model.source.startsWith("Current")) { $("#file-name").focus(); $("#file-name").select(); }
+  });
+
+  // Final product size, in inches, taken from the planned stitches.
+  let sizeBase = null;
+  function fillSize() {
+    if (!model || !model.source.startsWith("Current")) { sizeBase = null; return; }
+    const b = model.bounds, w = (b.maxX - b.minX) / 25.4, h = (b.maxY - b.minY) / 25.4;
+    sizeBase = { w, h };
+    $("#final-w").value = w.toFixed(2); $("#final-h").value = h.toFixed(2);
+    updateSizeNote();
+  }
+  function updateSizeNote() {
+    const w = Number($("#final-w").value), h = Number($("#final-h").value), hoop = bridge().hoop();
+    if (!(w > 0 && h > 0)) { $("#final-mm").textContent = ""; return; }
+    const fits = w <= hoop.w + .01 && h <= hoop.h + .01;
+    $("#final-mm").textContent = `${Math.round(w * 25.4)} × ${Math.round(h * 25.4)} mm · ${fits ? "fits" : "too big for"} the ${hoop.w} × ${hoop.h} in hoop`;
+    $("#final-mm").style.color = fits ? "" : "var(--err)";
+  }
+  $("#final-w").addEventListener("input", () => {
+    if ($("#final-lock").checked && sizeBase) $("#final-h").value = (Number($("#final-w").value) * sizeBase.h / sizeBase.w).toFixed(2);
+    updateSizeNote();
+  });
+  $("#final-h").addEventListener("input", () => {
+    if ($("#final-lock").checked && sizeBase) $("#final-w").value = (Number($("#final-h").value) * sizeBase.w / sizeBase.h).toFixed(2);
+    updateSizeNote();
+  });
+  $("#apply-size").addEventListener("click", async () => {
+    if (!sizeBase) return;
+    const w = Number($("#final-w").value), h = Number($("#final-h").value);
+    try {
+      bridge().resizeDesign(w / sizeBase.w, h / sizeBase.h);
+      await showCurrent();
+      setStatus(`Resized to ${$("#final-w").value} × ${$("#final-h").value} in and re-planned the stitches. Check the preview, then save.`);
+    } catch (error) {
+      setStatus(error.message || String(error), true);
+    }
+  });
   $("#viewer-current").addEventListener("click", showCurrent);
   $("#viewer-open-file").addEventListener("change", (event) => { showFile(event.target.files[0]); event.target.value = ""; });
   $("#viewer-close").addEventListener("click", () => { stop(); dialog.close(); });
