@@ -1,7 +1,7 @@
 // Keeps a copy of the whole app on this device so it opens and works with no internet connection.
 // Online, files always come fresh from the network (so an update never mixes old and new files);
 // offline, the saved copy is used. Bump VERSION whenever a file changes.
-const VERSION = "shifty-stitch-2.3.0";
+const VERSION = "shifty-stitch-2.3.1";
 const FILES = [
   "./", "index.html", "editor.js", "previewer.js", "formats.js", "stitches.js",
   "vendor/imagetracer.js", "vendor/fonts.js", "icon.svg", "manifest.webmanifest"

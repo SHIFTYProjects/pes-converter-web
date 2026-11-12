@@ -169,12 +169,13 @@
     .empty{color:var(--ink-3);padding:6px 0}
 
     /* layers */
-    .layers{display:grid;gap:2px;max-height:min(380px,38vh);overflow:auto;scrollbar-width:thin}
-    .layer-row{display:flex;align-items:center;gap:4px;padding:2px 3px;border:1px solid transparent;border-radius:var(--r);background:#fff}
+    .layers{display:grid;grid-template-columns:minmax(0,1fr);gap:2px;max-height:min(380px,38vh);overflow:auto;scrollbar-width:thin}
+    .layer-row{display:flex;align-items:center;gap:4px;padding:2px 3px;border:1px solid transparent;border-radius:var(--r);background:#fff;min-width:0}
+    .layer-row .row-tools{flex:none}
     .layer-row.selected{border-color:var(--ink);background:#fff}
     .layer{display:flex;align-items:center;gap:8px;text-align:left;flex:1;min-width:0;padding:5px 4px;border:0;background:transparent}
     .layer i{width:14px;height:14px;border:1px solid rgba(0,0,0,.2);border-radius:2px;flex:none}
-    .layer span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+    .layer span{flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere;line-height:1.25}
     .layer small{color:var(--ink-3)}
     .layer-reorder{display:flex;gap:1px}
     .layer-arrow{width:24px;height:24px;padding:0;border:0;border-radius:3px;background:transparent;color:var(--ink-3);font-size:9px}
@@ -190,6 +191,8 @@
     .layers .swatch.selected{border-color:var(--ink)}
     .layers .swatch.current,.layers .swatch.sub.current{background:var(--accent-soft);border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
     .layers .swatch.current .tname{font-weight:650}
+    .layers .swatch .tname{white-space:normal;overflow-wrap:anywhere}
+    .layers .swatch .row-tools{flex:none}
     @keyframes ants{to{stroke-dashoffset:-16}}
     .color-hl [stroke-dasharray]{animation:ants .9s linear infinite}
     .editing{display:flex;align-items:center;gap:8px;padding:6px 8px;margin:0 0 6px;border:1px solid var(--accent);border-radius:var(--r);background:var(--accent-soft);font-weight:600;min-height:34px}
@@ -211,8 +214,19 @@
     #status{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:7px}
     #status::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex:none}
     #status.ok::before{background:var(--ok)}#status.error{color:var(--err)}#status.error::before{background:var(--err)}
-    #status.busy::before{background:#c08a1e;animation:pulse 1s infinite}
-    @keyframes pulse{50%{opacity:.25}}
+    #status.busy::before{width:9px;height:9px;background:transparent;border:2px solid var(--line-2);border-top-color:var(--accent);animation:spin .8s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* busy indicator (spinner + progress bar) over the canvas */
+    .busy{position:absolute;z-index:15;top:12px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:11px;min-width:250px;max-width:calc(100% - 24px);padding:10px 14px;background:var(--panel);border:1px solid var(--line-2);border-radius:8px;box-shadow:0 8px 24px rgba(40,30,20,.18);pointer-events:none;animation:busy-in .15s .1s both}
+    @keyframes busy-in{from{opacity:0}to{opacity:1}}
+    .spinner{width:22px;height:22px;flex:none;border-radius:50%;border:2.5px solid var(--line);border-top-color:var(--accent);animation:spin .8s linear infinite}
+    .busy-text{flex:1;min-width:0}
+    .busy-text b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .bar{height:5px;margin-top:6px;border-radius:3px;background:var(--line);overflow:hidden}
+    .bar i{display:block;height:100%;width:0;border-radius:3px;background:var(--accent);transition:width .2s}
+    .bar.ind i{width:40%;transition:none;animation:bar-slide 1.1s ease-in-out infinite}
+    @keyframes bar-slide{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
     .statusbar .m{color:var(--ink-3)}
     .statusbar .m b{color:var(--ink);font-weight:600}
     #canvas-size.warn{color:var(--err);font-weight:600}
@@ -396,6 +410,7 @@
         </svg>
         <div class="empty-hint" id="empty-hint"><b>Upload artwork to trace it into editable vector regions</b>Drop an image here, or use Upload image.<br>Add text with the Text tool.</div>
         <div class="drop-hint" id="drop-hint" hidden>Drop the image to trace it</div>
+        <div class="busy" id="busy" role="progressbar" aria-live="polite" hidden><span class="spinner"></span><div class="busy-text"><b id="busy-label">Working…</b><div class="bar ind" id="busy-bar"><i></i></div></div></div>
         <div class="pop" id="thread-pop" hidden>
           <h4>Brother thread colors</h4>
           <div class="brother-grid" id="brother-grid"></div>
@@ -428,7 +443,7 @@
           <div class="f"><label for="trace-colors">Trace colors</label><select class="s" id="trace-colors"><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option><option>12</option><option selected>16</option><option>24</option><option>32</option><option>40</option><option>48</option><option>64</option></select></div>
           <div class="f"><label for="trace-detail" title="Lower cleanup drops small fragments and thin slivers; higher keeps fine detail. Applies live to the selected image.">Trace cleanup</label><div class="inl"><input id="trace-detail" type="range" min="10" max="100" step="5" value="40"><span id="trace-detail-value" class="unit">40%</span></div></div>
           <label class="chk" title="Leaves white and very pale areas unstitched. Off by default so light parts of your design are kept."><input id="ignore-white" type="checkbox"> Exclude all near-white regions</label>
-          <button class="btn wide" id="retrace-image" disabled style="width:100%;margin-top:4px" title="Select an image layer, choose a color count, then retrace it.">Retrace selected image</button>
+          <p class="note">Changes retrace the selected image automatically. Ctrl+Z undoes a retrace.</p>
         </section>
 
         <section class="sec" id="sec-text" hidden>

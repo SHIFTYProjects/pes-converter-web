@@ -43,10 +43,41 @@
     statusEl.textContent = text;
     statusEl.title = text;
     statusEl.className = kind;
+    // "busy" messages also show the spinner + progress card over the canvas; anything else hides it.
+    if (kind === "busy") showBusy(text); else hideBusy();
     // While the previewer is open, show the same message there.
     const viewerStatus = document.getElementById("viewer-status");
     if (viewerStatus && document.getElementById("viewer")?.open) { viewerStatus.textContent = text; viewerStatus.className = kind === "error" ? "error" : ""; }
   }
+  function showBusy(text, fraction = null) {
+    const el = document.getElementById("busy");
+    if (!el) return;
+    document.getElementById("busy-label").textContent = text;
+    el.hidden = false;
+    setBusyProgress(fraction);
+  }
+  // fraction 0..1 shows a filling bar; null shows a sliding (unknown length) bar.
+  function setBusyProgress(fraction, text) {
+    const el = document.getElementById("busy");
+    if (!el || el.hidden) return;
+    if (text) document.getElementById("busy-label").textContent = text;
+    const bar = document.getElementById("busy-bar"), known = Number.isFinite(fraction);
+    bar.classList.toggle("ind", !known);
+    bar.firstElementChild.style.width = known ? `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%` : "";
+    if (known) el.setAttribute("aria-valuenow", String(Math.round(fraction * 100))); else el.removeAttribute("aria-valuenow");
+  }
+  function hideBusy() {
+    const el = document.getElementById("busy");
+    if (el) el.hidden = true;
+  }
+  // Let the browser paint (e.g. the busy card) before a long synchronous job starts.
+  // (The timeout covers background tabs, where animation frames are paused.)
+  const nextPaint = () => new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    requestAnimationFrame(() => setTimeout(finish, 0));
+    setTimeout(finish, 60);
+  });
   function renderDragFrame(obj) {
     const group = objectRoot.querySelector(`[data-object-id="${obj.id}"]`);
     if (group && isLineObject(obj)) { renderObject(obj, group); group.remove(); }
@@ -692,7 +723,6 @@
     const kinds = { image: "Traced artwork", text: "Text", shape: "Shape", draw: "Brush stroke" };
     $("#obj-kind").textContent = obj ? (isLineObject(obj) ? "Stitched line" : kinds[obj.type] || "") : "";
     if (document.activeElement !== $("#text-entry")) $("#text-entry").value = obj && obj.type === "text" ? obj.text : "";
-    $("#retrace-image").disabled = !obj || obj.type !== "image" || !obj.sourceDataUrl;
     if (obj) {
       $("#obj-x").value = obj.x.toFixed(2); $("#obj-y").value = obj.y.toFixed(2);
       $("#obj-w").value = obj.width.toFixed(2); $("#obj-h").value = obj.height.toFixed(2);
@@ -2037,14 +2067,14 @@
     return { width, height, regions: stackRegionsBySize(regions, colorArea), sourceDataUrl, traceColors: effectiveColors, monochrome };
   }
   let liveSnapshotTaken = false;
-  async function retraceSelectedImage({ live = false } = {}) {
+  async function retraceSelectedImage({ live = false, restoreWhite = false } = {}) {
     const obj = selectedObject();
     if (!obj || obj.type !== "image" || !obj.sourceDataUrl) {
       message("Select an image that has its original artwork available to retrace.", "error");
       return;
     }
-    $("#retrace-image").disabled = true;
-    message("Retracing image with the selected color count…");
+    message(`Retracing with ${$("#trace-colors").value} colors at ${$("#trace-detail").value}% cleanup…`, "busy");
+    await nextPaint();
     try {
       const image = await new Promise((resolve, reject) => {
         const element = new Image();
@@ -2055,11 +2085,11 @@
       const traceColors = Number($("#trace-colors").value);
       const traceDetail = Number($("#trace-detail").value);
       const traced = traceImageElement(image, traceColors, traceDetail);
-      const whiteRemoved = (obj.regions || []).some((region) => region.fill === "none");
+      const whiteRemoved = !restoreWhite && (obj.regions || []).some((region) => region.fill === "none");
       const regions = $("#ignore-white").checked || whiteRemoved
         ? traced.regions.filter((region) => !isNearWhite(region.fill))
         : traced.regions;
-      if (!regions.length) throw new Error("Ignoring near-white removed every region. Turn the option off and retrace.");
+      if (!regions.length) throw new Error("Ignoring near-white removed every region. Turn off \"Exclude all near-white regions\".");
       if (!live || !liveSnapshotTaken) snapshot();
       if (live) liveSnapshotTaken = true;
       const previousBaseW = obj.baseW, previousBaseH = obj.baseH;
@@ -2075,8 +2105,17 @@
     } catch (error) {
       console.error(error);
       message(error.message || "Could not retrace the selected image.", "error");
-    } finally {
-      $("#retrace-image").disabled = !selectedObject()?.sourceDataUrl;
+    }
+  }
+  // One retrace at a time; a change made while one runs is applied right after it finishes.
+  let retraceRunning = false, retracePending = null;
+  async function requestRetrace(options = {}) {
+    if (retraceRunning) { retracePending = { ...retracePending, ...options }; return; }
+    retraceRunning = true;
+    try { await retraceSelectedImage(options); }
+    finally {
+      retraceRunning = false;
+      if (retracePending) { const next = retracePending; retracePending = null; requestRetrace(next); }
     }
   }
   async function addText(at = null) {
@@ -3300,8 +3339,12 @@
         if (segments.reduce((total, seg) => total + seg.points.length, 0) > 150000) throw new Error("This design exceeds 150,000 planned stitches. Increase row spacing or simplify the artwork.");
       };
       // Appliqué adds stop colors to `colors`, so walk a copy of the original list.
-      for (const color of colors.slice()) {
-        if (!fillColors.has(color)) continue;
+      const fillQueue = colors.filter((color) => fillColors.has(color));
+      const steps = fillQueue.length + 2;
+      let step = 0;
+      for (const color of fillQueue) {
+        setBusyProgress(step / steps, `Generating stitches… color ${++step} of ${fillQueue.length}`);
+        await nextPaint();
         const colorIndex = colors.indexOf(color);
         const settings = colorSettings(color);
         if (!Number.isFinite(Number(settings.strokeMm)) || settings.strokeMm < 0 || settings.strokeMm > 2
@@ -3346,6 +3389,8 @@
         })));
         checkSize();
       }
+      setBusyProgress(step / steps, "Generating stitches… outlines and lines");
+      await nextPaint();
       if ($("#outline-mode").value !== "off") {
         const artColors = colors.filter((c, i) => fillColors.has(c) && colors.indexOf(c) === i);
         const outlineColor = safeColor($("#outline-color").value);
@@ -3365,6 +3410,7 @@
           .filter((seg) => seg.points.length > 1);
         segments.push(...orderSegments(lineSegs, 1));
       }
+      setBusyProgress((steps - 1) / steps, "Generating stitches… finishing");
       await addAdvancedSegments(segments, colors, fillColors, spacing);
       checkSize();
       if (!segments.length) throw new Error("No stitches were generated. Increase trace detail or add larger filled regions.");
@@ -3389,6 +3435,7 @@
       throw error;
     } finally {
       state.busy = false; $("#export-pes").disabled = false;
+      if (statusEl.className !== "busy") hideBusy();
     }
   }
   // For each segment: null when it needs a trim + jump, otherwise the list of intermediate travel
@@ -3759,7 +3806,8 @@
   $("#ignore-white").addEventListener("change", (event) => {
     const obj = selectedObject();
     if (!event.target.checked) {
-      if (obj?.type === "image") message("Retrace the selected image to bring the near-white regions back.", "info");
+      // Bring the near-white regions back by tracing again.
+      if (obj?.type === "image" && obj.sourceDataUrl) requestRetrace({ restoreWhite: true });
       return;
     }
     if (obj?.type !== "image") return;
@@ -3783,27 +3831,21 @@
     updateToolCursor();
     if (state.drawing?.type === "draw") drawShapeGhost();
   });
+  const canRetrace = () => selectedObject()?.type === "image" && !!selectedObject().sourceDataUrl;
   $("#trace-colors").addEventListener("change", () => {
-    if (selectedObject()?.type === "image") message("Color count changed. Retrace the selected image to apply it.", "info");
+    if (canRetrace()) requestRetrace();
   });
-  let liveTraceTimer = null, liveTraceBusy = false;
+  let liveTraceTimer = null;
   $("#trace-detail").addEventListener("input", (event) => {
     $("#trace-detail-value").textContent = `${event.target.value}%`;
-    const obj = selectedObject();
-    if (obj?.type !== "image" || !obj.sourceDataUrl) return;
+    if (!canRetrace()) return;
     clearTimeout(liveTraceTimer);
-    liveTraceTimer = setTimeout(async () => {
-      if (liveTraceBusy) return;
-      liveTraceBusy = true;
-      try { await retraceSelectedImage({ live: true }); } finally { liveTraceBusy = false; }
-    }, 250);
+    liveTraceTimer = setTimeout(() => requestRetrace({ live: true }), 250);
   });
   $("#trace-detail").addEventListener("change", () => {
     clearTimeout(liveTraceTimer);
-    if (!liveTraceBusy && selectedObject()?.type === "image" && selectedObject().sourceDataUrl) {
-      liveTraceBusy = true;
-      retraceSelectedImage({ live: true }).finally(() => { liveTraceBusy = false; liveSnapshotTaken = false; });
-    } else liveSnapshotTaken = false;
+    if (canRetrace()) requestRetrace({ live: true }).finally(() => { liveSnapshotTaken = false; });
+    else liveSnapshotTaken = false;
   });
   $("#zoom").addEventListener("input", (event) => zoomCanvas(Number(event.target.value) / 100));
   $("#zoom-in").addEventListener("click", () => zoomCanvas(state.zoom * 1.25));
@@ -3814,7 +3856,7 @@
     if (!file) return;
     message(`Tracing ${file.name}…`, "busy");
     showTab("object");
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await nextPaint();
     try { await traceImage(file); }
     catch (error) { console.error(error); message(error.message, "error"); }
   }
@@ -3838,7 +3880,6 @@
     else await importPicture(file);
   });
 
-  $("#retrace-image").addEventListener("click", () => retraceSelectedImage());
   $("#add-text").addEventListener("click", () => addText());
   $("#add-text-btn").addEventListener("click", () => addText());
   $("#add-shape-btn").addEventListener("click", () => { setTool("rect"); message("Drag on the canvas to draw a filled rectangle.", "info"); });
