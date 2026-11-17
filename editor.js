@@ -458,6 +458,12 @@
     if (brushWidth) {
       attrs.stroke = region.fill; attrs["stroke-width"] = brushWidth;
       attrs["stroke-linecap"] = "round"; attrs["stroke-linejoin"] = "round";
+    } else if (region.fill && region.fill !== "none") {
+      // Neighbouring traced shapes share an edge, and the browser's edge smoothing lets the background
+      // show through as a hairline seam there. A one-screen-pixel edge in the shape's own color closes
+      // it at every zoom; it is display only (stitches are planned from the shapes themselves).
+      attrs.stroke = region.fill; attrs["stroke-width"] = 1; attrs["vector-effect"] = "non-scaling-stroke";
+      attrs["stroke-linejoin"] = "round";
     }
     const path = node("path", attrs);
     path.style.cursor = cursor;
@@ -591,17 +597,24 @@
     updateToolCursor();
     render();
   }
-  function updateToolCursor() {
-    if (state.tool === "draw" || state.tool === "erase" || state.tool === "line") {
-      const matrix = stage.getScreenCTM();
-      const pxPerInch = matrix ? Math.hypot(matrix.a, matrix.b) : 96;
-      const diameter = Math.max(2, Math.min(120, Number($("#brush-size").value) / 25.4 * pxPerInch));
-      const side = Math.ceil(diameter + 4), center = side / 2, radius = diameter / 2;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${side}" height="${side}" viewBox="0 0 ${side} ${side}"><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="white" stroke-width="3"/><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="#172033" stroke-width="1"/></svg>`;
-      stage.style.cursor = `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${center} ${center}, crosshair`;
-    } else {
-      stage.style.cursor = state.tool === "select" ? "default" : state.tool === "pick" ? "copy" : "crosshair";
+  // The brush outline is drawn inside the canvas in design inches, so it matches the real brush size at
+  // every zoom level. (A custom mouse-cursor image is capped at 128px by browsers and gets rescaled by
+  // Windows display scaling, so it stopped matching where strokes actually landed when zoomed in.)
+  const brushCursor = $("#brush-cursor");
+  let brushCursorPoint = null;
+  const usesBrushCursor = () => state.tool === "draw" || state.tool === "erase" || state.tool === "line";
+  function updateBrushCursor(point = brushCursorPoint) {
+    brushCursorPoint = point;
+    if (!point || !usesBrushCursor() || state.pan) { brushCursor.setAttribute("visibility", "hidden"); return; }
+    const radius = Math.max(.002, Number($("#brush-size").value) / 25.4 / 2);
+    for (const circle of brushCursor.children) {
+      circle.setAttribute("cx", point.x); circle.setAttribute("cy", point.y); circle.setAttribute("r", radius);
     }
+    brushCursor.setAttribute("visibility", "visible");
+  }
+  function updateToolCursor() {
+    stage.style.cursor = usesBrushCursor() ? "crosshair" : state.tool === "select" ? "default" : state.tool === "pick" ? "copy" : "crosshair";
+    updateBrushCursor();
   }
   function selectedObject() { return state.objects.find((obj) => obj.id === state.selectedId) || null; }
   function drawSelection(obj) {
@@ -1247,6 +1260,7 @@
       return;
     }
     const p = svgPoint(event);
+    updateBrushCursor(p);
     $("#cursor-coords").textContent = `${p.x.toFixed(2)} × ${p.y.toFixed(2)} in`;
     if (state.erasing) {
       addErasingPoint(event);
@@ -1401,10 +1415,13 @@
     }
     state.drag = null; state.drawing = null; state.erasing = null; state.pan = null; render();
   });
+  stage.addEventListener("pointerleave", () => { if (!state.drawing && !state.erasing) updateBrushCursor(null); });
   stage.addEventListener("wheel", (event) => {
     event.preventDefault();
     const anchor = svgPoint(event);
     zoomCanvas(state.zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1), anchor);
+    // The view moved under the pointer: keep the brush outline on the pointer's new design position.
+    if (brushCursorPoint) updateBrushCursor(svgPoint(event));
   }, { passive: false });
   function drawShapeGhost() {
     selectionRoot.replaceChildren();
@@ -1464,7 +1481,7 @@
         id: uid(), type: "image", name: file.name || "Traced artwork",
         x: hoopW / 2, y: hoopH / 2, width: crop.width * fit, height: crop.height * fit,
         baseW: crop.width, baseH: crop.height, naturalW: traced.width, naturalH: traced.height,
-        cropX: crop.x, cropY: crop.y,
+        cropX: crop.x, cropY: crop.y, traceMaxSide: TRACE_MAX_SIDE, traceTrimmed: true,
         sourceDataUrl: traced.sourceDataUrl, originalDataUrl, traceColors: traced.traceColors, traceDetail,
         regions
       };
@@ -1959,10 +1976,52 @@
     }
     return { traceData, palette, traceScale: S };
   }
-  function traceImageElement(image, colorCount, detail) {
-    const scale = Math.min(1, 900 / Math.max(image.naturalWidth, image.naturalHeight));
-    const width = Math.max(1, Math.round(image.naturalWidth * scale));
-    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  // Finds the part of the image that differs from its plain border (white or transparent margins), so
+  // the tracing resolution is spent on the artwork instead of empty background. Returns null when the
+  // corners disagree (no uniform margin) or nothing would be trimmed.
+  function findContentBox(image) {
+    const iw = image.naturalWidth, ih = image.naturalHeight;
+    const probeScale = Math.min(1, 600 / Math.max(iw, ih));
+    const pw = Math.max(1, Math.round(iw * probeScale)), ph = Math.max(1, Math.round(ih * probeScale));
+    const probe = document.createElement("canvas");
+    probe.width = pw; probe.height = ph;
+    const ctx = probe.getContext("2d", { willReadFrequently: true });
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, pw, ph);
+    ctx.drawImage(image, 0, 0, pw, ph);
+    const data = ctx.getImageData(0, 0, pw, ph).data;
+    const at = (x, y) => { const i = (y * pw + x) * 4; return [data[i], data[i + 1], data[i + 2]]; };
+    const corners = [at(0, 0), at(pw - 1, 0), at(0, ph - 1), at(pw - 1, ph - 1)];
+    const bg = corners[0];
+    const diff = (c) => Math.abs(c[0] - bg[0]) + Math.abs(c[1] - bg[1]) + Math.abs(c[2] - bg[2]);
+    if (corners.some((c) => diff(c) > 30)) return null;
+    let minX = pw, minY = ph, maxX = -1, maxY = -1;
+    for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+      const i = (y * pw + x) * 4;
+      if (Math.abs(data[i] - bg[0]) + Math.abs(data[i + 1] - bg[1]) + Math.abs(data[i + 2] - bg[2]) <= 45) continue;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+    if (maxX < 0) return null;
+    // Keep a small margin of background around the artwork.
+    const pad = Math.round(Math.max(maxX - minX, maxY - minY) * .02) + 2;
+    minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+    maxX = Math.min(pw - 1, maxX + pad); maxY = Math.min(ph - 1, maxY + pad);
+    const box = {
+      x: Math.floor(minX / probeScale), y: Math.floor(minY / probeScale),
+      w: Math.min(iw, Math.ceil((maxX + 1) / probeScale)) - Math.floor(minX / probeScale),
+      h: Math.min(ih, Math.ceil((maxY + 1) / probeScale)) - Math.floor(minY / probeScale)
+    };
+    if (box.w * box.h > iw * ih * .92) return null;
+    return box;
+  }
+  // maxSide: longest side (in pixels) the artwork is traced at. trim: crop away a plain margin first.
+  // Older projects retrace with their original settings (900, untrimmed) so their geometry stays put.
+  const TRACE_MAX_SIDE = 1600;
+  function traceImageElement(image, colorCount, detail, { maxSide = TRACE_MAX_SIDE, trim = true } = {}) {
+    const box = (trim && findContentBox(image)) || { x: 0, y: 0, w: image.naturalWidth, h: image.naturalHeight };
+    const scale = Math.min(1, maxSide / Math.max(box.w, box.h));
+    const width = Math.max(1, Math.round(box.w * scale));
+    const height = Math.max(1, Math.round(box.h * scale));
     const canvas = document.createElement("canvas");
     canvas.width = width; canvas.height = height;
     const context = canvas.getContext("2d", { willReadFrequently: true });
@@ -1970,7 +2029,8 @@
     const quality = Math.max(0, Math.min(1, (detail - 10) / 90));
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
+    context.imageSmoothingEnabled = true; context.imageSmoothingQuality = "high";
+    context.drawImage(image, box.x, box.y, box.w, box.h, 0, 0, width, height);
     const sourcePixels = context.getImageData(0, 0, width, height).data;
     let sourceDataUrl = canvas.toDataURL("image/png");
     if (sourceDataUrl.length > 1_200_000) {
@@ -2024,7 +2084,7 @@
       ({ traceData, palette, traceScale } = smartQuantize(canvas, width, height, effectiveColors, quality));
     } else if (!monochrome) {
       // Small sources are enlarged with smooth interpolation so snapped colour edges follow a smooth curve.
-      const longSide = Math.max(image.naturalWidth, image.naturalHeight) * scale;
+      const longSide = Math.max(width, height);
       traceScale = longSide <= 900 ? Math.max(2, Math.min(4, Math.round(1200 / longSide))) : 1;
       if (traceScale > 1) {
         const big = document.createElement("canvas");
@@ -2084,7 +2144,12 @@
       });
       const traceColors = Number($("#trace-colors").value);
       const traceDetail = Number($("#trace-detail").value);
-      const traced = traceImageElement(image, traceColors, traceDetail);
+      // Retrace in the same pixel space the object was first traced in. The saved sourceDataUrl is
+      // already trimmed, so only the full original is trimmed again.
+      const traced = traceImageElement(image, traceColors, traceDetail, {
+        maxSide: obj.traceMaxSide || 900,
+        trim: Boolean(obj.traceTrimmed && obj.originalDataUrl)
+      });
       const whiteRemoved = !restoreWhite && (obj.regions || []).some((region) => region.fill === "none");
       const regions = $("#ignore-white").checked || whiteRemoved
         ? traced.regions.filter((region) => !isNearWhite(region.fill))
@@ -2522,12 +2587,15 @@
       if (i >= w) seed(i - w);
       if (i < w * (h - 1)) seed(i + w);
     }
-    const out = outsidePx > 0 ? dilateMask(mask, w, h, Math.ceil(outsidePx)) : null;
-    const inn = insidePx > 0 ? (Math.ceil(insidePx) === Math.ceil(outsidePx) ? out : dilateMask(mask, w, h, Math.ceil(insidePx))) : null;
+    // Exact distance from each empty pixel to the color, so the growth is round and exactly as wide as the
+    // stroke drawn in the editor (a square, whole-pixel growth was up to 1.5x wider and ate fine lines).
+    const empty = new Uint8Array(w * h);
+    for (let i = 0; i < empty.length; i++) empty[i] = mask[i] ? 0 : 1;
+    const reach = SL.exactDistance(empty, w, h);
     for (let i = 0; i < mask.length; i++) {
       if (mask[i]) continue;
       if (forbid && forbid[i]) continue; // never grow under a color that sits above this one
-      if ((out && outside[i] && out[i]) || (inn && !outside[i] && inn[i])) { data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = data[i * 4 + 3] = 255; }
+      if (outside[i] ? reach[i] <= outsidePx : reach[i] <= insidePx) { data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = data[i * 4 + 3] = 255; }
     }
     context.putImageData(image, 0, 0);
   }
@@ -2635,8 +2703,11 @@
   }
   // Rows of fill. `cuts(rowIndex, aMm, bMm, lengthMm)` gives needle positions between the run ends (in travel
   // order, measured along the row in mm); `offset(xPx)` bends rows for wave and chevron fills.
+  // Every rowFill call is one "pass" (underlay, fill, …); segments remember it so a color can later be
+  // sewn island by island, each island's passes in their original order.
+  let rowFillPass = 0;
   function rowFill(raster, color, spacingMm, cuts, offset = null) {
-    const { side, alpha, ppu } = raster, step = spacingMm * ppu, segments = [];
+    const { side, alpha, ppu } = raster, step = spacingMm * ppu, segments = [], pass = ++rowFillPass;
     for (let rowIndex = 0, y = 0; y < side; rowIndex++, y += step) {
       const runs = []; let start = -1;
       for (let x = 0; x <= side; x++) {
@@ -2656,7 +2727,7 @@
         const xs = [a, ...cuts(rowIndex, a, b, length), b];
         const points = xs.map((xm) => raster.toInches(xm * ppu, offset ? y + offset(xm * ppu) : y));
         // Rows closer than 1 mm form a solid cover that later travel stitches can hide under.
-        if (points.length > 1) segments.push({ color, points, cover: spacingMm <= 1 });
+        if (points.length > 1) segments.push({ color, points, cover: spacingMm <= 1, pass, spacing: spacingMm, row: rowIndex, lo: x1, hi: x2 });
       }
     }
     return segments;
@@ -2885,7 +2956,10 @@
   // one with the fewest/shortest jumps wins.
   // Where the needle is after everything ordered so far, so each new pass starts close by (fewer, shorter jumps).
   let orderNeedle = null;
+  // While true, ordering is left for sewByIsland to do once, island by island (it would be thrown away).
+  let deferOrdering = false;
   function orderSegments(segments, spacingMm = .4) {
+    if (deferOrdering) return segments.slice();
     if (segments.length < 2) {
       if (segments.length) orderNeedle = segments[0].points.at(-1);
       return segments.slice();
@@ -2989,6 +3063,215 @@
     }
     orderNeedle = end;
     return ordered;
+  }
+  // Raster of one color at angle 0 plus helpers to go from hoop inches to its pixels.
+  const DETAIL_PPU = 8;
+  async function colorRaster0(color, grow, smooth, shrink) {
+    const r = await rasterColors([color], 0, DETAIL_PPU, grow, smooth, shrink);
+    const toPx = (p) => ({ x: (p.x - state.hoopW / 2) * 25.4 * r.ppu + r.side / 2, y: (p.y - state.hoopH / 2) * 25.4 * r.ppu + r.side / 2 });
+    return { ...r, toPx };
+  }
+  // Fill rows skip anything narrower than about 0.35 mm (a row there would be a stitch too short to sew),
+  // so fine lines of a color — outlines, feather lines, the tips of points — got no thread at all. This
+  // finds every part of the color that no stitch of `segments` comes near, and sews each such part with a
+  // fine running stitch around its edge. On a thin line that is a close out-and-back pass: a crisp line.
+  function thinDetailSegments(raster, color, segments, spacingMm) {
+    const { side, alpha, toPx, ppu } = raster;
+    const covered = new Uint8Array(side * side);
+    const radius = Math.max(1.5, Math.max(.22, spacingMm * .6) * ppu), rr = Math.ceil(radius), disc = [];
+    for (let dy = -rr; dy <= rr; dy++) for (let dx = -rr; dx <= rr; dx++) if (dx * dx + dy * dy <= radius * radius) disc.push(dy * side + dx);
+    const stamp = (x, y) => {
+      const ix = Math.round(x), iy = Math.round(y);
+      if (ix < rr || iy < rr || ix >= side - rr || iy >= side - rr) return;
+      const i = iy * side + ix;
+      for (const d of disc) covered[i + d] = 1;
+    };
+    for (const seg of segments) {
+      let prev = toPx(seg.points[0]);
+      stamp(prev.x, prev.y);
+      for (let k = 1; k < seg.points.length; k++) {
+        const q = toPx(seg.points[k]), n = Math.max(1, Math.ceil(Math.hypot(q.x - prev.x, q.y - prev.y) / .7));
+        for (let s = 1; s <= n; s++) stamp(prev.x + (q.x - prev.x) * s / n, prev.y + (q.y - prev.y) * s / n);
+        prev = q;
+      }
+    }
+    const left = new Uint8Array(side * side);
+    let any = false;
+    for (let i = 0; i < left.length; i++) if (alpha[i] && !covered[i]) { left[i] = 1; any = true; }
+    if (!any) return [];
+    // Grow the leftovers a pixel back into the color, so the run sits on the real edge of a fine line.
+    const grown = dilateMask(left, side, side, 1);
+    for (let i = 0; i < grown.length; i++) grown[i] = grown[i] && alpha[i] ? 1 : 0;
+    const minArea = Math.max(6, Math.round(.12 * ppu * ppu)); // ignore crumbs under about 0.12 mm²
+    const out = [];
+    for (let contour of traceOuterContours(grown, side, side, minArea)) {
+      // One time around is enough.
+      const again = contour.findIndex((p, k) => k > 2 && p.x === contour[0].x && p.y === contour[0].y);
+      if (again > 0) contour = contour.slice(0, again);
+      const mm = (contour.length > 8 ? smoothClosedPath(contour, 3) : contour).map((p) => {
+        const q = raster.toInches(p.x, p.y);
+        return { x: q.x * 25.4, y: q.y * 25.4 };
+      });
+      if (SL.pathLength(mm, true) < .8) continue;
+      const run = SL.resample(mm, 1.2, true);
+      if (run.length < 2) continue;
+      run.push(run[0]);
+      out.push({ color, points: run.map(mmToIn), detail: true });
+    }
+    return out;
+  }
+  // Orders the rows of one fill pass so travel between rows can be buried. The rows are split into
+  // sections: runs of rows where each row continues into exactly one row of the next line. Sections meet
+  // at forks and joins, which makes a tree. A plain nearest-row walk sews out along one branch and then has
+  // to cross finished rows to reach the next branch; here a side branch is reached by travelling out through
+  // it while it is still unsewn and then sewn back toward the fork, so the travel lies under its own rows.
+  function orderRows(segs) {
+    if (segs.length < 2) {
+      if (segs.length) orderNeedle = segs[0].points.at(-1);
+      return segs.slice();
+    }
+    const byRow = new Map();
+    for (const s of segs) { if (!byRow.has(s.row)) byRow.set(s.row, []); byRow.get(s.row).push(s); }
+    const down = new Map(), up = new Map();
+    for (const s of segs) { down.set(s, []); up.set(s, []); }
+    for (const [row, list] of byRow) {
+      const next = byRow.get(row + 1);
+      if (!next) continue;
+      for (const a of list) for (const b of next) if (a.lo <= b.hi + 1 && b.lo <= a.hi + 1) { down.get(a).push(b); up.get(b).push(a); }
+    }
+    // Sections: chains linked one-to-one between neighbouring lines.
+    const sectionOf = new Map(), sections = [];
+    const rowsSorted = [...segs].sort((a, b) => a.row - b.row || a.lo - b.lo);
+    for (const s of rowsSorted) {
+      if (sectionOf.has(s)) continue;
+      const sec = { rows: [], id: sections.length };
+      let cur = s;
+      for (;;) {
+        sec.rows.push(cur); sectionOf.set(cur, sec);
+        const d = down.get(cur);
+        if (d.length !== 1 || up.get(d[0]).length !== 1 || sectionOf.has(d[0])) break;
+        cur = d[0];
+      }
+      sections.push(sec);
+    }
+    // Neighbours at each end of a section.
+    for (const sec of sections) {
+      const top = sec.rows[0], bottom = sec.rows.at(-1);
+      sec.top = [...new Set(up.get(top).map((r) => sectionOf.get(r)))].filter((o) => o !== sec);
+      sec.bottom = [...new Set(down.get(bottom).map((r) => sectionOf.get(r)))].filter((o) => o !== sec);
+    }
+    const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+    const out = [], visited = new Set();
+    let needle = orderNeedle;
+    // Appends a row, oriented so it starts at the end nearer the needle (serpentine).
+    const sewRow = (row) => {
+      const p = row.points;
+      const flip = needle && dist(p.at(-1), needle) < dist(p[0], needle);
+      const seg = flip ? { ...row, points: p.slice().reverse() } : row;
+      out.push(seg); needle = seg.points.at(-1);
+    };
+    // `fromTop`: the section is sewn starting at its top row.
+    const sewSection = (sec, fromTop) => { for (const r of fromTop ? sec.rows : [...sec.rows].reverse()) sewRow(r); };
+    const claim = (list) => list.filter((s) => !visited.has(s) && (visited.add(s), true));
+    // Sew `sec`, entering at its top (atTop) or bottom, ending wherever its subtree ends.
+    const sewOut = (sec, atTop) => {
+      const entry = claim(atTop ? sec.top : sec.bottom), far = claim(atTop ? sec.bottom : sec.top);
+      for (const c of entry) sewBack(c, sec);
+      sewSection(sec, atTop);
+      far.forEach((c, i) => (i < far.length - 1 ? sewBack(c, sec) : sewOut(c, c.top.includes(sec))));
+    };
+    // Sew `sec` and its subtree so that the needle ends where `sec` meets `parent`.
+    const sewBack = (sec, parent) => {
+      const parentAtTop = sec.top.includes(parent);
+      const near = claim(parentAtTop ? sec.top : sec.bottom), far = claim(parentAtTop ? sec.bottom : sec.top);
+      // Travel (buried, the section is still unsewn) to the far end; finish everything beyond it first.
+      for (const c of far) sewBack(c, sec);
+      sewSection(sec, !parentAtTop);
+      for (const c of near) sewBack(c, sec);
+    };
+    while (visited.size < sections.length) {
+      // Start at the free section end nearest the needle (or the topmost row).
+      let best = null;
+      for (const sec of sections) {
+        if (visited.has(sec)) continue;
+        for (const atTop of [true, false]) {
+          const row = atTop ? sec.rows[0] : sec.rows.at(-1);
+          const d = needle ? Math.min(dist(row.points[0], needle), dist(row.points.at(-1), needle)) : (atTop ? row.row : Infinity);
+          if (!best || d < best.d) best = { sec, atTop, d };
+        }
+      }
+      visited.add(best.sec);
+      sewOut(best.sec, best.atTop);
+    }
+    orderNeedle = needle;
+    return out;
+  }
+  // Sews one color island by island: each separate part gets all of its passes (underlay, fill, fine
+  // details) before the needle moves on to the nearest next part. Sewing every pass across the whole
+  // design instead visits each part several times, and every visit to a separate part is a trim.
+  function sewByIsland(raster, segments) {
+    const { side, alpha, toPx } = raster;
+    const labels = new Int32Array(side * side), stack = new Int32Array(side * side);
+    let count = 0;
+    for (let start = 0; start < alpha.length; start++) {
+      if (!alpha[start] || labels[start]) continue;
+      const id = ++count;
+      let top = 0; stack[top++] = start; labels[start] = id;
+      while (top) {
+        const i = stack[--top], x = i % side;
+        const visit = (j) => { if (alpha[j] && !labels[j]) { labels[j] = id; stack[top++] = j; } };
+        if (x > 0) visit(i - 1);
+        if (x < side - 1) visit(i + 1);
+        if (i >= side) visit(i - side);
+        if (i < side * (side - 1)) visit(i + side);
+      }
+    }
+    if (!count) return null;
+    const labelNear = (p) => {
+      const c = toPx(p), cx = Math.round(c.x), cy = Math.round(c.y);
+      for (let r = 0; r <= 4; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = cx + dx, y = cy + dy;
+        if (x >= 0 && y >= 0 && x < side && y < side && labels[y * side + x]) return labels[y * side + x];
+      }
+      return 0;
+    };
+    const islands = new Map();
+    for (const seg of segments) {
+      const pts = seg.points;
+      // The middle of a row's first stitch is well inside the shape; a detail loop's own points sit on it.
+      const probe = seg.detail ? pts[0] : { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+      const id = labelNear(probe);
+      if (!islands.has(id)) islands.set(id, []);
+      islands.get(id).push(seg);
+    }
+    const passOf = (seg) => (seg.detail ? Infinity : seg.pass || 0);
+    const remaining = [...islands.values()], out = [];
+    while (remaining.length) {
+      // Next island: the one with a pass-start row end nearest the needle.
+      let pick = 0;
+      if (orderNeedle) {
+        let best = Infinity;
+        remaining.forEach((segs, index) => {
+          const firstPass = Math.min(...segs.map(passOf));
+          for (const seg of segs) {
+            if (passOf(seg) !== firstPass) continue;
+            for (const p of [seg.points[0], seg.points.at(-1)]) {
+              const d = Math.hypot(p.x - orderNeedle.x, p.y - orderNeedle.y);
+              if (d < best) { best = d; pick = index; }
+            }
+          }
+        });
+      }
+      const [segs] = remaining.splice(pick, 1);
+      const passes = new Map();
+      for (const seg of segs) { const k = passOf(seg); if (!passes.has(k)) passes.set(k, []); passes.get(k).push(seg); }
+      for (const k of [...passes.keys()].sort((a, b) => a - b)) {
+        const list = passes.get(k);
+        out.push(...(list.every((s) => s.row !== undefined) ? orderRows(list) : orderSegments(list, list[0].spacing || 1)));
+      }
+    }
+    return out;
   }
   function fillHoles(mask, w, h) {
     const outside = new Uint8Array(w * h), stack = new Int32Array(w * h);
@@ -3121,7 +3404,7 @@
     if (outside) throw new Error("The outline goes outside the hoop. Make it narrower, reduce its gap, or make the design a little smaller.");
     return segments;
   }
-  function traceOuterContours(mask, w, h) {
+  function traceOuterContours(mask, w, h, minArea = 40) {
     const dirs = [[-1, 0], [-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1]];
     const seen = new Uint8Array(w * h), contours = [];
     for (let y = 0; y < h; y++) {
@@ -3139,10 +3422,13 @@
             if (mask[ni] && !seen[ni]) { seen[ni] = 1; flood.push(ni); }
           }
         }
-        if (area < 40) continue;
+        if (area < minArea) continue;
         const points = [{ x, y }];
         let px = x, py = y, back = 0, steps = 0;
-        while (steps++ < 400000) {
+        // A closed trace visits each edge pixel at most a few times; the cap stops it from circling a
+        // one-pixel-wide line forever when the exact stop condition is never met.
+        const maxSteps = Math.min(400000, area * 4 + 64);
+        while (steps++ < maxSteps) {
           let found = false;
           for (let i = 1; i <= 8; i++) {
             const [dx, dy] = dirs[(back + i) % 8];
@@ -3376,17 +3662,31 @@
           continue;
         }
         const underlay = $("#underlay").value;
-        if (underlay !== "none" && ["tatami", "satin", "wave", "chevron", "diamond", "brick"].includes(style)) {
-          const underlaySpacing = underlay === "heavy" ? Math.max(.3, spacing)
-            : underlay === "medium" ? Math.max(.45, spacing * 1.5)
-              : Math.max(.65, spacing * 2);
-          const r = await rasterColors([color], colorAngle + 90, ppu, grow, smooth, shrink);
-          segments.push(...tag(orderSegments(rowFill(r, color, underlaySpacing, tatamiCuts(3)), underlaySpacing)));
+        const colorSegs = [];
+        // Solid row fills get fine lines the rows were too narrow to reach, and are sewn island by island.
+        const byIsland = ["auto", "tatami", "satin", "wave", "chevron", "diamond", "brick"].includes(style);
+        deferOrdering = byIsland;
+        try {
+          if (underlay !== "none" && ["tatami", "satin", "wave", "chevron", "diamond", "brick"].includes(style)) {
+            const underlaySpacing = underlay === "heavy" ? Math.max(.3, spacing)
+              : underlay === "medium" ? Math.max(.45, spacing * 1.5)
+                : Math.max(.65, spacing * 2);
+            const r = await rasterColors([color], colorAngle + 90, ppu, grow, smooth, shrink);
+            colorSegs.push(...orderSegments(rowFill(r, color, underlaySpacing, tatamiCuts(3)), underlaySpacing));
+          }
+          colorSegs.push(...await fillSegments(color, style, {
+            angle: colorAngle, spacing, stitchMm, patternMm, grow, smooth, shrink, ppu,
+            underlay, fixedAngle: Number.isFinite(settings.angle) ? settings.angle : null
+          }));
+        } finally { deferOrdering = false; }
+        if (byIsland && colorSegs.length) {
+          const base = await colorRaster0(color, grow, smooth, shrink);
+          colorSegs.push(...thinDetailSegments(base, color, colorSegs, spacing));
+          const islandOrder = sewByIsland(base, colorSegs);
+          if (islandOrder) colorSegs.splice(0, colorSegs.length, ...islandOrder);
+          else colorSegs.splice(0, colorSegs.length, ...orderSegments(colorSegs, spacing));
         }
-        segments.push(...tag(await fillSegments(color, style, {
-          angle: colorAngle, spacing, stitchMm, patternMm, grow, smooth, shrink, ppu,
-          underlay, fixedAngle: Number.isFinite(settings.angle) ? settings.angle : null
-        })));
+        segments.push(...tag(colorSegs));
         checkSize();
       }
       setBusyProgress(step / steps, "Generating stitches… outlines and lines");
@@ -3454,6 +3754,9 @@
     // For each cell, the last block whose dense fill (tatami/satin rows) covers it. Travel stitches may run
     // under any area that a later color will sew over, the way professional software hides them.
     const coveredLater = new Map();
+    // For each cell, the last segment (by index) whose dense fill covers it. A travel run in a dense fill is
+    // only buried if a segment sewn after it covers its path; over finished fill it would lie on top.
+    const lastCover = new Map();
     const mark = (seg, fn) => {
       for (let i = 0; i < seg.points.length; i++) {
         const q = seg.points[i], p = seg.points[Math.max(0, i - 1)];
@@ -3466,8 +3769,13 @@
       let set = cover.get(seg.color);
       if (!set) cover.set(seg.color, set = new Set());
       mark(seg, (k) => set.add(k));
-      if (seg.cover) mark(seg, (k) => { if ((coveredLater.get(k) ?? -1) < blockOf[index]) coveredLater.set(k, blockOf[index]); });
+      if (seg.cover) mark(seg, (k) => {
+        if ((coveredLater.get(k) ?? -1) < blockOf[index]) coveredLater.set(k, blockOf[index]);
+        if ((lastCover.get(k) ?? -1) < index) lastCover.set(k, index);
+      });
     });
+    // Dense fills and their fine-line details hide travel only under stitching still to come.
+    const buriedOnly = (seg) => Boolean(seg.cover || seg.detail);
     const lineCovered = (ok, a, b) => {
       const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (cell * .5));
       for (let k = 1; k < steps; k++) {
@@ -3476,15 +3784,23 @@
       }
       return true;
     };
-    const travel = (color, from, to, block) => {
+    const travel = (color, from, to, block, index, futureOnly) => {
       const own = cover.get(color);
-      const set = { has: (k) => own.has(k) || (coveredLater.get(k) ?? -1) > block };
+      // Cost of crossing a cell. Dense fills: ground that later stitching will cover is free; this color's
+      // finished fill is allowed but costs much more (the run would lie on top of it); anything else is off
+      // limits. Other styles keep the simple rule: own stitching, or ground a later color covers.
+      const PAST = 6;
+      const weight = futureOnly
+        ? (k) => ((lastCover.get(k) ?? -1) >= index ? 1 : own.has(k) ? PAST : Infinity)
+        : (k) => (own.has(k) || (coveredLater.get(k) ?? -1) > block ? 1 : Infinity);
+      const set = { has: (k) => weight(k) < Infinity };
       const ok = (k) => set.has(k);
+      const okFuture = (k) => weight(k) === 1;
       const a = { x: from.x * mm, y: from.y * mm }, b = { x: to.x * mm, y: to.y * mm };
       const toInches = (p) => ({ x: p.x / mm, y: p.y / mm });
       const straight = Math.hypot(b.x - a.x, b.y - a.y);
       let route = null;
-      if (lineCovered(ok, a, b)) route = [a, b];
+      if (lineCovered(okFuture, a, b)) route = [a, b];
       else {
         const sx = Math.floor(a.x / cell), sy = Math.floor(a.y / cell), gx = Math.floor(b.x / cell), gy = Math.floor(b.y / cell);
         const h = (x, y) => Math.hypot(x - gx, y - gy) * cell;
@@ -3516,9 +3832,10 @@
           for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
             if (!dx && !dy) continue;
             const nx = x + dx, ny = y + dy, nk = keyOf(nx, ny);
-            if (!set.has(nk) && !(nx === gx && ny === gy)) continue;
-            const cost = g + (dx && dy ? 1.414 : 1) * cell;
-            if (cost > maxTravel || cost >= (best.get(nk) ?? Infinity)) continue;
+            const w = nx === gx && ny === gy ? 1 : weight(nk);
+            if (w === Infinity) continue;
+            const cost = g + (dx && dy ? 1.414 : 1) * cell * w;
+            if (cost > maxTravel * (futureOnly ? 2 : 1) || cost >= (best.get(nk) ?? Infinity)) continue;
             best.set(nk, cost); from2.set(nk, keyOf(x, y));
             push([cost + h(nx, ny), nx, ny]);
           }
@@ -3529,10 +3846,17 @@
         cells.reverse();
         const pts = cells.map((k) => ({ x: (Math.floor(k / 8192) + .5) * cell, y: ((k % 8192) + .5) * cell }));
         pts[0] = a; pts[pts.length - 1] = b;
+        // Straighten the cell path, but never let a shortcut cut across costlier ground than the stretch
+        // of path it replaces (a buried stretch stays buried).
+        const w = cells.map((k, i) => (i === 0 || i === cells.length - 1 ? 1 : weight(k)));
         route = [a];
         for (let i = 0; i < pts.length - 1;) {
           let j = pts.length - 1;
-          while (j > i + 1 && !lineCovered(ok, pts[i], pts[j])) j--;
+          for (; j > i + 1; j--) {
+            let worst = 1;
+            for (let m = i; m <= j; m++) if (w[m] > worst) worst = w[m];
+            if (lineCovered(worst > 1 ? ok : okFuture, pts[i], pts[j])) break;
+          }
           route.push(pts[j]); i = j;
         }
       }
@@ -3549,8 +3873,16 @@
       const from = previous.points.at(-1), to = segment.points[0];
       const gap = Math.hypot(to.x - from.x, to.y - from.y) * mm;
       // Decorative fills (contour, cross-stitch) may step straight to the neighbouring row.
-      if (gap <= joinLimit || (segment.link && gap <= Math.min(segment.link, 6))) return [];
-      return travel(segment.color, from, to, blockOf[index]);
+      if (segment.link && gap <= Math.min(segment.link, 6)) return [];
+      const futureOnly = buriedOnly(segment) && buriedOnly(previous);
+      if (gap <= joinLimit) {
+        // A short hop is sewn straight across, unless it would lie across another color's finished work
+        // (a gray stitch over a fine black line): then it goes round, or the thread is trimmed.
+        const own = cover.get(segment.color);
+        const ok = (k) => own.has(k) || (lastCover.get(k) ?? -1) >= index;
+        if (!futureOnly || lineCovered(ok, { x: from.x * mm, y: from.y * mm }, { x: to.x * mm, y: to.y * mm })) return [];
+      }
+      return travel(segment.color, from, to, blockOf[index], index, futureOnly);
     });
   }
   // Machine commands for the current stitch plan in 0.1 mm units, with the design's top-left at (0, 0).
