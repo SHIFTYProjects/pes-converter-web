@@ -3938,16 +3938,34 @@
       const m = 5;
       const bx0 = Math.max(1, x0 - m), by0 = Math.max(1, y0 - m), bx1 = Math.min(hoopMm.w - 1, x1 + m), by1 = Math.min(hoopMm.h - 1, y1 + m);
       const box = [{ x: bx0, y: by0 }, { x: bx1, y: by0 }, { x: bx1, y: by1 }, { x: bx0, y: by1 }, { x: bx0, y: by0 }];
-      first.push({ color: firstColor, points: SL.limitStitches(box, 5).map(mmToIn) });
+      first.push({ color: firstColor, points: SL.limitStitches(box, 5).map(mmToIn), under: true });
     }
     if (knockdown) {
       // A light open crosshatch under the whole design, slightly larger, to flatten towel loops.
       for (const a of [45, 135]) {
         const r = await rasterColors(artColors, a, 4, 2);
-        first.push(...orderSegments(rowFill(r, null, 2, tatamiCuts(4)), 2).map((s) => ({ ...s, color: firstColor })));
+        first.push(...orderSegments(rowFill(r, null, 2, tatamiCuts(4)), 2).map((s) => ({ ...s, color: firstColor, under: true })));
       }
     }
     segments.unshift(...first);
+  }
+  // Every thread is loaded once: all blocks of the same color are joined into one, keeping their stitches
+  // in order. The joined block is sewn where the color's last block was (so outlines and stitched lines
+  // stay on top), unless it holds basting or knockdown, which must go down before everything else.
+  // Colors are matched by index, so appliqué stops (same thread, separate indices) are kept.
+  function mergeColorBlocks(segments) {
+    const groups = new Map(), firstPos = new Map(), lastPos = new Map();
+    let block = -1, prev = null;
+    for (const seg of segments) {
+      if (seg.color !== prev) { block++; prev = seg.color; }
+      if (!groups.has(seg.color)) { groups.set(seg.color, []); firstPos.set(seg.color, block); }
+      groups.get(seg.color).push(seg);
+      lastPos.set(seg.color, block);
+    }
+    const order = [...groups.keys()].map((color) => ({
+      color, pos: groups.get(color).some((s) => s.under) ? -1 : lastPos.get(color), first: firstPos.get(color)
+    })).sort((a, b) => a.pos - b.pos || a.first - b.first);
+    segments.splice(0, segments.length, ...order.flatMap((g) => groups.get(g.color)));
   }
   async function makeStitches() {
     if (!state.objects.length) throw new Error("Add traced artwork, a shape, or text before generating stitches.");
@@ -4001,7 +4019,10 @@
           // Placement line, stop for fabric, tack-down, stop to trim, then a satin cover edge.
           const contours = await colorContours([color], 6, grow / 2, false, shrink);
           const loops = (fn) => contours.filter((c) => SL.pathLength(c, true) > 3).map((c) => ({ color, points: fn(c).map(mmToIn) }));
-          segments.push(...tag(loops((c) => SL.lineStitch(c, { style: "running", closed: true, length: 2.5 }))));
+          // Each step has its own color slot (the machine stops between them), separate from the color's main
+          // slot, so merging repeated colors (mergeColorBlocks) never pulls the steps apart.
+          colors.push(color);
+          segments.push(...tag(loops((c) => SL.lineStitch(c, { style: "running", closed: true, length: 2.5 })), colors.length - 1));
           colors.push(color);
           segments.push(...tag(loops((c) => SL.lineStitch(c, { style: "satin", width: 1.5, spacing: 1.6, closed: true })), colors.length - 1));
           colors.push(color);
@@ -4061,26 +4082,19 @@
         planned += list.reduce((total, seg) => total + seg.points.length, 0);
         if (planned > 150000) throw new Error("This design exceeds 150,000 planned stitches. Increase row spacing or simplify the artwork.");
       }
-      let onTop = new Map();
       if (gapFix) {
-        // Fine lines of a color that would not show: too narrow for fill rows (bare fabric) are added to the
-        // color's own pass; buried by the colors sewn after it, they are sewn again on top after all fills.
+        // Fine lines of a color that would not show (too narrow for fill rows, or buried by colors sewn
+        // after it) are added to the color's own pass. They are never sewn as a second pass of the same
+        // color later on: that would load the same thread twice.
         setBusyProgress(step / steps, "Generating stitches… fine details");
         await nextPaint();
         const rowFilled = new Set(fillQueue.filter((c) => rowStyles.includes(resolveFill(colorSettings(c).fill))));
         const extras = unsewnDetails(gapFix, fillQueue.map((color) => [color, blocks.get(color)]), rowFilled);
         const tag = (color, list) => list.map((seg) => ({ ...seg, color: colors.indexOf(color) }));
-        // A pass on top costs a thread change, so a color only gets one for a real amount of fine line
-        // (30 mm or more); a few millimetres are sewn in the color's own pass instead.
-        const lengthMm = (list) => list.reduce((total, seg) => total + SL.pathLength(seg.points.map((p) => ({ x: p.x * 25.4, y: p.y * 25.4 })), false), 0) / 2;
-        for (const [color, list] of extras.onTop) {
-          if (lengthMm(list) >= 30) onTop.set(color, tag(color, list));
-          else extras.inline.set(color, [...(extras.inline.get(color) || []), ...list]);
-        }
+        for (const [color, list] of extras.onTop) extras.inline.set(color, [...(extras.inline.get(color) || []), ...list]);
         for (const [color, list] of extras.inline) blocks.set(color, insertNear(blocks.get(color), tag(color, list)));
       }
       for (const color of fillQueue) segments.push(...blocks.get(color));
-      for (const color of fillQueue) if (onTop.has(color)) segments.push(...orderSegments(onTop.get(color), spacing));
       checkSize();
       setBusyProgress(step / steps, "Generating stitches… outlines and lines");
       await nextPaint();
@@ -4107,6 +4121,7 @@
       await addAdvancedSegments(segments, colors, fillColors, spacing);
       checkSize();
       if (!segments.length) throw new Error("No stitches were generated. Increase trace detail or add larger filled regions.");
+      mergeColorBlocks(segments);
       const usedColorIndices = [...new Set(segments.map((segment) => segment.color))].sort((a, b) => a - b);
       const remappedColors = new Map(usedColorIndices.map((colorIndex, index) => [colorIndex, index]));
       segments.forEach((segment) => { segment.color = remappedColors.get(segment.color); });
